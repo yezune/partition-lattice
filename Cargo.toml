@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.82.0"
 name = "partition-lattice"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["L-VM Team"]
 build = false
 exclude = [
@@ -41,7 +41,7 @@ categories = [
     "algorithms",
 ]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yezune/L-VM"
+repository = "https://github.com/yezune/partition-lattice"
 
 [features]
 default = [
