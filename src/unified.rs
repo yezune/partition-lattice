@@ -102,10 +102,10 @@ pub trait PartitionOps: Clone + core::fmt::Debug + Send + Sync {
     }
 
     /// Join with configurable strategy.
-    fn integrate_with_strategy(&self, other: &Self, strategy: JoinStrategy) -> Self {
+    fn integrate_with_strategy(&self, other: &Self, strategy: CoarsenStrategy) -> Self {
         match strategy {
-            JoinStrategy::Exact => self.integrate_exact(other),
-            JoinStrategy::Shallow(_) | JoinStrategy::Auto => self.integrate(other),
+            CoarsenStrategy::Exact => self.integrate_exact(other),
+            CoarsenStrategy::Shallow(_) | CoarsenStrategy::Auto => self.integrate(other),
         }
     }
 
@@ -324,7 +324,7 @@ fn pick_factor_for_universe(n: usize) -> u32 {
 /// - ShallowJoin d=2: 30~484x faster than Exact, h(π) 8% higher (prevents over-coarsening)
 /// - CPU double-buffer ensures symmetric propagation (in-place causes h collapse)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum JoinStrategy {
+pub enum CoarsenStrategy {
     /// ShallowJoin with fixed depth d (double-buffer symmetric propagation).
     /// d=2 is the recommended default.
     Shallow(u32),
@@ -335,9 +335,9 @@ pub enum JoinStrategy {
     Auto,
 }
 
-impl Default for JoinStrategy {
+impl Default for CoarsenStrategy {
     fn default() -> Self {
-        JoinStrategy::Shallow(2)
+        CoarsenStrategy::Shallow(2)
     }
 }
 
@@ -1480,7 +1480,7 @@ impl Partition {
         // When the meet result would exceed BLOCKS_MEMORY_LIMIT in FastPartition,
         // route through SparsePartition to avoid lossy *id % max_blocks capping.
         #[cfg(feature = "std")]
-        if self.should_use_sparse_meet(other) {
+        if self.should_use_sparse_refine(other) {
             let a = self.to_sparse();
             let b = other.to_sparse();
             return Partition::Sparse(a.differentiate(&b));
@@ -1508,6 +1508,48 @@ impl Partition {
                 Partition::Lattice(a.differentiate(&b))
             }
         }
+    }
+
+    /// Common refinement, named for what it does rather than for its position in the
+    /// lattice. Identical to [`Self::differentiate`].
+    ///
+    /// The literature is split on which of meet and join is the common refinement:
+    /// this crate calls it `Meet`, Ellerman and others call it `join`. `refine` reads
+    /// the same under either convention, so it is the safer name when porting a
+    /// formula. See the module documentation for the full correspondence.
+    ///
+    /// ```
+    /// use partition_lattice::Partition;
+    /// let a = Partition::from_ids(vec![0, 0, 1, 1]);
+    /// let b = Partition::from_ids(vec![0, 1, 0, 1]);
+    ///
+    /// assert_eq!(a.refine(&b).get_ids(), a.differentiate(&b).get_ids());
+    /// assert_eq!(a.refine(&b).block_count(), 4); // every element separated
+    /// ```
+    pub fn refine(&self, other: &Self) -> Self {
+        self.differentiate(other)
+    }
+
+    /// Common coarsening, named for what it does rather than for its position in the
+    /// lattice. Identical to [`Self::integrate`].
+    ///
+    /// The counterpart of [`Self::refine`]; see that method for why the neutral name
+    /// exists.
+    ///
+    /// ⚠ Like `integrate`, this is the exact join. Learning loops that want the
+    /// depth-bounded variant must ask for it explicitly via
+    /// [`Self::integrate_with_strategy`].
+    ///
+    /// ```
+    /// use partition_lattice::Partition;
+    /// let a = Partition::from_ids(vec![0, 0, 1, 1]);
+    /// let b = Partition::from_ids(vec![0, 1, 0, 1]);
+    ///
+    /// assert_eq!(a.coarsen(&b).get_ids(), a.integrate(&b).get_ids());
+    /// assert_eq!(a.coarsen(&b).block_count(), 1); // everything merged
+    /// ```
+    pub fn coarsen(&self, other: &Self) -> Self {
+        self.integrate(other)
     }
 
     /// Join (∨): ShallowJoin d=2 by default.
@@ -1617,7 +1659,7 @@ impl Partition {
         // PCS-A5 dispatch for ExactJoin (Sparse-join fast path is std-only):
         #[cfg(feature = "std")]
         if !matches!((self, other), (Partition::Fast(_), Partition::Fast(_)))
-            && self.should_use_sparse_join(other)
+            && self.should_use_sparse_coarsen(other)
         {
             let a = self.to_sparse();
             let b = other.to_sparse();
@@ -1645,10 +1687,10 @@ impl Partition {
     }
 
     /// Join with configurable strategy.
-    pub fn integrate_with_strategy(&self, other: &Self, strategy: JoinStrategy) -> Self {
+    pub fn integrate_with_strategy(&self, other: &Self, strategy: CoarsenStrategy) -> Self {
         match strategy {
-            JoinStrategy::Exact => self.integrate_exact(other),
-            JoinStrategy::Shallow(d) => {
+            CoarsenStrategy::Exact => self.integrate_exact(other),
+            CoarsenStrategy::Shallow(d) => {
                 if self.size() < AUTO_SELECT_THRESHOLD {
                     return self.integrate_exact(other);
                 }
@@ -1658,7 +1700,7 @@ impl Partition {
                     d,
                 ))
             }
-            JoinStrategy::Auto => self.integrate(other),
+            CoarsenStrategy::Auto => self.integrate(other),
         }
     }
 
@@ -1749,10 +1791,10 @@ impl Partition {
     }
 
     /// Complex meet with phase interference (delegates to PartitionLattice).
-    pub fn complex_meet(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
+    pub fn complex_refine(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
         let a = self.to_lattice();
         let b = other.to_lattice();
-        let (result, interference) = a.complex_meet(&b, phase_self, phase_other);
+        let (result, interference) = a.complex_refine(&b, phase_self, phase_other);
         (Partition::Lattice(result), interference)
     }
 
@@ -1783,7 +1825,7 @@ impl Partition {
     }
 
     /// Fused meet + refines: computes meet = self ∧ other and checks if result refines old_model.
-    pub fn fused_meet_refines(&self, other: &Self, old_model: &Self) -> (Self, bool) {
+    pub fn fused_refine_and_check(&self, other: &Self, old_model: &Self) -> (Self, bool) {
         let meet = self.differentiate(other);
         let does_refine = meet.refines(old_model);
         (meet, does_refine)
@@ -1800,7 +1842,7 @@ impl Partition {
         }
         #[cfg(feature = "std")]
         if self.should_use_streaming(other) {
-            return crate::streaming::fused_meet_entropy(self, other, DEFAULT_CHUNK_SIZE);
+            return crate::streaming::fused_refine_entropy(self, other, DEFAULT_CHUNK_SIZE);
         }
         match (self, other) {
             (Partition::Lattice(a), Partition::Lattice(b)) => a.fused_entropy_differentiate(b),
@@ -1834,7 +1876,7 @@ impl Partition {
     /// because it avoids materializing the join partition entirely.
     #[cfg(feature = "std")]
     pub fn fused_entropy_integrate(&self, other: &Self) -> f64 {
-        crate::streaming::block_graph_join_entropy(self, other, DEFAULT_CHUNK_SIZE)
+        crate::streaming::block_graph_coarsen_entropy(self, other, DEFAULT_CHUNK_SIZE)
     }
 
     pub fn logical_area(&self) -> f64 {
@@ -1857,7 +1899,7 @@ impl Partition {
 
     /// PCS-A5: Unified O(1) dispatch diagnosis for partition operations.
     ///
-    /// Combines `should_use_sparse_meet`, `should_use_sparse_join`, and
+    /// Combines `should_use_sparse_refine`, `should_use_sparse_coarsen`, and
     /// `should_use_streaming` into a single entry point based on PCS regime theory.
     ///
     /// Three-layer application:
@@ -1939,7 +1981,7 @@ impl Partition {
     /// SparsePartition which handles arbitrary K without loss.
     ///
     /// Diagnosis cost: O(1) — only reads size() and block_count().
-    pub fn should_use_sparse_meet(&self, other: &Self) -> bool {
+    pub fn should_use_sparse_refine(&self, other: &Self) -> bool {
         let n = self.size();
         if n < AUTO_SELECT_THRESHOLD {
             return false;
@@ -1967,7 +2009,7 @@ impl Partition {
     /// Examples:
     /// - K=10, N=100M: 10×12.5MB = 125MB < 256MB → Fast ✅
     /// - K=7071, N=50M: 7071×6.25MB = 44GB > 256MB → Sparse ✅
-    pub fn should_use_sparse_join(&self, other: &Self) -> bool {
+    pub fn should_use_sparse_coarsen(&self, other: &Self) -> bool {
         let n = self.size();
         if n < AUTO_SELECT_THRESHOLD {
             return false;

@@ -1155,7 +1155,7 @@ mod tests {
     #[cfg(feature = "slow-tests")]
     #[test]
     fn test_delta_incremental_n100k_timing() {
-        use crate::delta_meet::{ChangeSet, DeltaOpsEngine};
+        use crate::delta_refine::{ChangeSet, DeltaOpsEngine};
         use rand::Rng;
         let mut rng = rand::thread_rng();
         let n = 100_000;

@@ -25,7 +25,7 @@
 //!
 //! ```
 //! use partition_lattice::Partition;
-//! use partition_lattice::distributed::{shard_universe, distributed_meet_entropy};
+//! use partition_lattice::distributed::{shard_universe, distributed_refine_entropy};
 //!
 //! let pi = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
 //! let sigma = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
@@ -35,7 +35,7 @@
 //! let shards = shard_universe(&pi, &sigma, 2);
 //!
 //! // Distributed h(π ∧ σ) — exact match with monolithic
-//! let (h_meet, bytes) = distributed_meet_entropy(&shards, n);
+//! let (h_meet, bytes) = distributed_refine_entropy(&shards, n);
 //! let mono = pi.fused_entropy_differentiate(&sigma);
 //! assert!((h_meet - mono).abs() < 1e-12);
 //! ```
@@ -283,7 +283,7 @@ pub fn reduce_entropy(msgs: &[BlockCountMsg], n: usize) -> f64 {
 ///
 /// Aggregates `HashMap<(BlockId, BlockId), count>` from all shards, then
 /// computes $h(\pi \wedge \sigma) = 1 - \sum_{(b_1,b_2)} (\text{count}/N)^2$.
-pub fn reduce_meet_entropy(msgs: &[CompositeCountMsg], n: usize) -> f64 {
+pub fn reduce_refine_entropy(msgs: &[CompositeCountMsg], n: usize) -> f64 {
     if n == 0 {
         return 0.0;
     }
@@ -304,7 +304,7 @@ pub fn reduce_meet_entropy(msgs: &[CompositeCountMsg], n: usize) -> f64 {
 /// This exploits the meet/join duality: both operations share the same
 /// block co-occurrence matrix, but join uses connected components
 /// (transitive closure) instead of cells (product).
-pub fn reduce_join_entropy(msgs: &[BlockGraphMsg], n: usize) -> f64 {
+pub fn reduce_coarsen_entropy(msgs: &[BlockGraphMsg], n: usize) -> f64 {
     if n == 0 {
         return 0.0;
     }
@@ -468,10 +468,10 @@ pub fn distributed_entropy(shards: &[Shard], n: usize, use_pi: bool) -> (f64, us
 /// Distributed $h(\pi \wedge \sigma)$: Protocol 2 full pipeline.
 ///
 /// Returns `(meet_entropy, total_bytes_transferred)`.
-pub fn distributed_meet_entropy(shards: &[Shard], n: usize) -> (f64, usize) {
+pub fn distributed_refine_entropy(shards: &[Shard], n: usize) -> (f64, usize) {
     let msgs: Vec<CompositeCountMsg> = shards.iter().map(|s| map_composite_counts(s)).collect();
     let total_bytes: usize = msgs.iter().map(|m| m.bytes_transferred).sum();
-    (reduce_meet_entropy(&msgs, n), total_bytes)
+    (reduce_refine_entropy(&msgs, n), total_bytes)
 }
 
 /// Distributed $d_{\oplus}(\pi, \sigma)$: Protocol 3 (derived from P1 + P2).
@@ -480,7 +480,7 @@ pub fn distributed_meet_entropy(shards: &[Shard], n: usize) -> (f64, usize) {
 pub fn distributed_ditset_xor_distance(shards: &[Shard], n: usize) -> (f64, usize) {
     let (h_pi, b1) = distributed_entropy(shards, n, true);
     let (h_sigma, b2) = distributed_entropy(shards, n, false);
-    let (h_meet, b3) = distributed_meet_entropy(shards, n);
+    let (h_meet, b3) = distributed_refine_entropy(shards, n);
     (2.0 * h_meet - h_pi - h_sigma, b1 + b2 + b3)
 }
 
@@ -489,7 +489,7 @@ pub fn distributed_ditset_xor_distance(shards: &[Shard], n: usize) -> (f64, usiz
 /// Returns `(logical_divergence, total_bytes_transferred)`.
 pub fn distributed_logical_divergence(shards: &[Shard], n: usize) -> (f64, usize) {
     let (h_sigma, b1) = distributed_entropy(shards, n, false);
-    let (h_meet, b2) = distributed_meet_entropy(shards, n);
+    let (h_meet, b2) = distributed_refine_entropy(shards, n);
     (h_meet - h_sigma, b1 + b2)
 }
 
@@ -499,17 +499,17 @@ pub fn distributed_logical_divergence(shards: &[Shard], n: usize) -> (f64, usize
 pub fn distributed_mutual_information(shards: &[Shard], n: usize) -> (f64, usize) {
     let (h_pi, b1) = distributed_entropy(shards, n, true);
     let (h_sigma, b2) = distributed_entropy(shards, n, false);
-    let (h_meet, b3) = distributed_meet_entropy(shards, n);
+    let (h_meet, b3) = distributed_refine_entropy(shards, n);
     (h_pi + h_sigma - h_meet, b1 + b2 + b3)
 }
 
 /// Distributed $h(\pi \vee \sigma)$: Protocol 5 (block-graph MapReduce).
 ///
 /// Returns `(join_entropy, total_bytes_transferred)`.
-pub fn distributed_join_entropy(shards: &[Shard], n: usize) -> (f64, usize) {
+pub fn distributed_coarsen_entropy(shards: &[Shard], n: usize) -> (f64, usize) {
     let msgs: Vec<BlockGraphMsg> = shards.iter().map(|s| map_block_graph(s)).collect();
     let total_bytes: usize = msgs.iter().map(|m| m.bytes_transferred).sum();
-    (reduce_join_entropy(&msgs, n), total_bytes)
+    (reduce_coarsen_entropy(&msgs, n), total_bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@ mod tests {
         let (pi, sigma) = regular_partitions(10_000, 50, 80);
         for m in [2, 4, 8] {
             let shards = shard_universe(&pi, &sigma, m);
-            let (dh, _) = distributed_meet_entropy(&shards, pi.size());
+            let (dh, _) = distributed_refine_entropy(&shards, pi.size());
             let mono = pi.fused_entropy_differentiate(&sigma);
             assert!((dh - mono).abs() < EPS, "m={m}");
         }
@@ -608,7 +608,7 @@ mod tests {
         let (pi, sigma) = random_partitions(10_000, 100, 60, 123);
         for m in [2, 4, 8] {
             let shards = shard_universe(&pi, &sigma, m);
-            let (dh, _) = distributed_meet_entropy(&shards, pi.size());
+            let (dh, _) = distributed_refine_entropy(&shards, pi.size());
             let mono = pi.fused_entropy_differentiate(&sigma);
             assert!((dh - mono).abs() < EPS, "m={m}");
         }
@@ -653,7 +653,7 @@ mod tests {
         let (pi, sigma) = regular_partitions(10_000, 50, 80);
         for m in [2, 4, 8] {
             let shards = shard_universe(&pi, &sigma, m);
-            let (dh, _) = distributed_join_entropy(&shards, pi.size());
+            let (dh, _) = distributed_coarsen_entropy(&shards, pi.size());
             let mono = pi.fused_entropy_integrate(&sigma);
             assert!((dh - mono).abs() < EPS, "m={m}");
         }
@@ -664,7 +664,7 @@ mod tests {
         let (pi, sigma) = random_partitions(10_000, 30, 40, 777);
         for m in [2, 4, 8] {
             let shards = shard_universe(&pi, &sigma, m);
-            let (dh, _) = distributed_join_entropy(&shards, pi.size());
+            let (dh, _) = distributed_coarsen_entropy(&shards, pi.size());
             let mono = pi.fused_entropy_integrate(&sigma);
             assert!((dh - mono).abs() < EPS, "m={m}");
         }
@@ -680,7 +680,7 @@ mod tests {
         let (pi, sigma) = regular_partitions(n, k1, k2);
         for m in [2, 4, 8] {
             let shards = shard_universe(&pi, &sigma, m);
-            let (_, bytes) = distributed_meet_entropy(&shards, n);
+            let (_, bytes) = distributed_refine_entropy(&shards, n);
             let data_size = n * 4;
             let ratio = bytes as f64 / data_size as f64;
             assert!(ratio < 0.5, "m={m}: ratio {ratio:.4} >= 0.5 (K2 violation)");
@@ -696,7 +696,7 @@ mod tests {
         for &n in &[1_000, 10_000, 100_000] {
             let (pi, sigma) = regular_partitions(n, k1, k2);
             let shards = shard_universe(&pi, &sigma, m);
-            let (_, bytes) = distributed_meet_entropy(&shards, n);
+            let (_, bytes) = distributed_refine_entropy(&shards, n);
             let ratio = bytes as f64 / (n * 4) as f64;
             assert!(ratio < prev, "N={n}: not decreasing");
             prev = ratio;
@@ -710,8 +710,8 @@ mod tests {
         let (pi, sigma) = regular_partitions(1_000, 10, 20);
         let shards = shard_universe(&pi, &sigma, 1);
         let (dh, _) = distributed_entropy(&shards, pi.size(), true);
-        let (dm, _) = distributed_meet_entropy(&shards, pi.size());
-        let (dj, _) = distributed_join_entropy(&shards, pi.size());
+        let (dm, _) = distributed_refine_entropy(&shards, pi.size());
+        let (dj, _) = distributed_coarsen_entropy(&shards, pi.size());
         assert!((dh - pi.logical_entropy()).abs() < EPS);
         assert!((dm - pi.fused_entropy_differentiate(&sigma)).abs() < EPS);
         assert!((dj - pi.fused_entropy_integrate(&sigma)).abs() < EPS);
@@ -744,7 +744,7 @@ mod tests {
         let shards = shard_universe(&pi, &sigma, 4);
         let total: usize = shards.iter().map(|s| s.len()).sum();
         assert_eq!(total, n);
-        let (dm, _) = distributed_meet_entropy(&shards, n);
+        let (dm, _) = distributed_refine_entropy(&shards, n);
         let mono = pi.fused_entropy_differentiate(&sigma);
         assert!((dm - mono).abs() < EPS);
     }
@@ -820,11 +820,11 @@ mod tests {
 
         // Equal split baseline
         let equal_shards = shard_universe(&pi, &sigma, 3);
-        let (h_equal, _) = distributed_meet_entropy(&equal_shards, n);
+        let (h_equal, _) = distributed_refine_entropy(&equal_shards, n);
 
         // Weighted split
         let weighted_shards = shard_universe_weighted(&pi, &sigma, &[3.0, 2.0, 1.0]);
-        let (h_weighted, _) = distributed_meet_entropy(&weighted_shards, n);
+        let (h_weighted, _) = distributed_refine_entropy(&weighted_shards, n);
 
         assert!(
             (h_equal - mono).abs() < EPS,

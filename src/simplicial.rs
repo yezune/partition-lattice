@@ -306,7 +306,7 @@ pub fn interval_mobius(parts: &[Partition], lo: usize, hi: usize) -> i64 {
 /// β₀ (number of connected components) of a graph via the native lattice connectivity: Join
 /// (= Union-Find transitive closure) of the per-edge partitions, then `block_count`. This is the
 /// SSOT for connectivity and cross-checks the homological β₀ = |V| − rank(∂₁).
-pub fn betti0_via_join(n_verts: usize, edges: &[[usize; 2]]) -> usize {
+pub fn betti0_via_coarsen(n_verts: usize, edges: &[[usize; 2]]) -> usize {
     if n_verts == 0 {
         return 0;
     }
@@ -401,7 +401,7 @@ mod tests {
         let edges = [[0usize, 1], [1, 2], [2, 0], [3, 4]];
         let c = SimplicialComplex::from_graph(5, &edges, &[]);
         assert_eq!(
-            betti0_via_join(5, &edges) as i64,
+            betti0_via_coarsen(5, &edges) as i64,
             c.betti(0),
             "Join β₀ = homological β₀"
         );

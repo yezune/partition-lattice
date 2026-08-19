@@ -1,6 +1,6 @@
 # partition-lattice
 
-Partition lattice algebra in exact integer arithmetic: **Meet / Join / logical entropy**, plus
+Partition lattice algebra in exact integer arithmetic: **refine / coarsen / logical entropy**, plus
 the incidence and dynamics coordinates built on them.
 
 A *partition* of a finite universe `U` is a set of disjoint blocks covering `U`. Partitions
@@ -14,18 +14,18 @@ use partition_lattice::Partition;
 let a = Partition::from_ids(vec![0, 0, 1, 1]);   // {0,1}{2,3}
 let b = Partition::from_ids(vec![0, 1, 0, 1]);   // {0,2}{1,3}
 
-let meet = a.differentiate(&b);                  // common refinement (finer)
-let join = a.integrate(&b);                      // common coarsening (coarser)
+let finer   = a.refine(&b);                      // common refinement
+let coarser = a.coarsen(&b);                     // common coarsening
 
-assert_eq!(meet.block_count(), 4);               // all singletons
-assert_eq!(join.block_count(), 1);               // one block
+assert_eq!(finer.block_count(), 4);              // all singletons
+assert_eq!(coarser.block_count(), 1);            // one block
 ```
 
 ## What is here
 
 | Area | Module | What it gives |
 |---|---|---|
-| Lattice core | `unified`, `partition` | `Partition`, Meet (`differentiate`), Join (`integrate`), refinement order |
+| Lattice core | `unified`, `partition` | `Partition`, `refine` / `coarsen` (also spelled `differentiate` / `integrate`), refinement order |
 | Measure | `partition::logical_entropy` | `h(π) = 1 − Σ (|B|/|U|)²` — the *logical* entropy (Ellerman), exact rational underneath |
 | Incidence | `incidence` | `dit_count`, `dit_xor_count`, `dit_intersection_count`, `destr` / `creat`, Möbius cumulants, magnitude homology |
 | Curvature | `curvature` | `d_Σ` profile and its moments |
@@ -37,11 +37,27 @@ assert_eq!(join.block_count(), 1);               // one block
 **Order.** `π ⪯ σ` means `π.refines(σ)` — *finer is smaller*. So `Bottom` is the discrete
 partition (every element alone) and `Top` is the single-block partition.
 
-**Meet and Join.** `Meet` = `differentiate` = common **refinement**; `Join` = `integrate` =
-common **coarsening**. Much of the literature — including Ellerman's own papers — uses the
-**order-dual** convention, where join is the common refinement. Neither is wrong; they are
-opposite conventions on the same structure. If you are porting formulas from a paper, check
-which one it uses and flip `∧`/`∨` and the direction of `≤` together.
+**The operations are `refine` and `coarsen`.** Much of the literature — including
+Ellerman's papers — calls the common refinement *join*; other sources call it *meet*.
+Both are standard, and they are opposite conventions on the same structure, so a name
+like `meet` cannot be read without first knowing which convention is in force.
+`refine` and `coarsen` say what the operation does, so they read the same either way.
+
+Every public name containing `meet` or `join` was **removed in 0.2.0** — see the
+changelog for the mapping. `differentiate` and `integrate` are unchanged and are exact
+synonyms of `refine` and `coarsen`: they name a direction of change, not a position in
+the lattice, so they were never ambiguous.
+
+```rust
+# use partition_lattice::Partition;
+# let (a, b) = (Partition::from_ids(vec![0,0,1,1]), Partition::from_ids(vec![0,1,0,1]));
+assert_eq!(a.refine(&b).get_ids(),  a.differentiate(&b).get_ids());
+assert_eq!(a.coarsen(&b).get_ids(), a.integrate(&b).get_ids());
+```
+
+If you are porting a formula from a paper, check which convention it uses and flip
+`∧`/`∨` and the direction of `≤` together — or just use `refine` / `coarsen` and
+`refines()`, none of which change meaning between conventions.
 
 ## `no_std`
 

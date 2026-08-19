@@ -68,7 +68,7 @@ pub trait AccelerationBackend: Send + Sync {
         // Default: CPU double-buffer via unified.rs
         let a = Partition::from_ids(ids_a.to_vec());
         let b = Partition::from_ids(ids_b.to_vec());
-        a.integrate_with_strategy(&b, crate::unified::JoinStrategy::Shallow(depth))
+        a.integrate_with_strategy(&b, crate::unified::CoarsenStrategy::Shallow(depth))
             .get_ids()
             .to_vec()
     }
@@ -110,7 +110,7 @@ pub trait AccelerationBackend: Send + Sync {
 ///
 /// Dense branch: `Vec` counting when `K_a·K_b ≤ 4M` entries (32 MB of `u64`).
 /// Sparse branch: `HashMap<u64, u64>` otherwise.
-pub fn fused_meet_entropy_ids(ids_a: &[u32], ids_b: &[u32]) -> f64 {
+pub fn fused_refine_entropy_ids(ids_a: &[u32], ids_b: &[u32]) -> f64 {
     assert_eq!(ids_a.len(), ids_b.len(), "universe size mismatch");
     let n = ids_a.len();
     if n == 0 {
@@ -144,10 +144,10 @@ impl AccelerationBackend for CpuBackend {
         Partition::from_ids(ids.to_vec()).logical_entropy()
     }
 
-    /// Computes directly from raw ids via [`fused_meet_entropy_ids`], avoiding the `from_ids`
+    /// Computes directly from raw ids via [`fused_refine_entropy_ids`], avoiding the `from_ids`
     /// conversion at the `&[u32]` trait boundary; the `f64` result is unchanged.
     fn fused_entropy_differentiate(&self, ids_a: &[u32], ids_b: &[u32]) -> f64 {
-        fused_meet_entropy_ids(ids_a, ids_b)
+        fused_refine_entropy_ids(ids_a, ids_b)
     }
 
     fn differentiate(&self, ids_a: &[u32], ids_b: &[u32]) -> Vec<u32> {
@@ -425,14 +425,14 @@ mod tests {
         let b: Vec<u32> = (0..5000u32).map(|i| (i * 11) % 53).collect();
         let want = Partition::from_ids(a.clone())
             .fused_entropy_differentiate(&Partition::from_ids(b.clone()));
-        let got = fused_meet_entropy_ids(&a, &b);
+        let got = fused_refine_entropy_ids(&a, &b);
         assert!((got - want).abs() < 1e-12, "got {got} want {want}");
         // Force the sparse (HashMap) branch with labels above the dense cap.
         let a2: Vec<u32> = (0..5000u32).map(|i| i * 1000).collect();
         let b2: Vec<u32> = (0..5000u32).map(|i| (i * 7) % 4001).collect();
         let want2 = Partition::from_ids(a2.clone())
             .fused_entropy_differentiate(&Partition::from_ids(b2.clone()));
-        let got2 = fused_meet_entropy_ids(&a2, &b2);
+        let got2 = fused_refine_entropy_ids(&a2, &b2);
         assert!(
             (got2 - want2).abs() < 1e-12,
             "sparse: got {got2} want {want2}"
@@ -445,7 +445,7 @@ mod tests {
         let cpu = CpuBackend;
         let a: Vec<u32> = (0..3000u32).map(|i| (i * 13) % 71).collect();
         let b: Vec<u32> = (0..3000u32).map(|i| (i * 17) % 31).collect();
-        let direct = fused_meet_entropy_ids(&a, &b);
+        let direct = fused_refine_entropy_ids(&a, &b);
         assert!((cpu.fused_entropy_differentiate(&a, &b) - direct).abs() < 1e-12);
     }
 }

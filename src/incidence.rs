@@ -14,7 +14,7 @@
 //!   [`dit_xor_count`], [`geodesic_excess`], [`is_modular_pair`], [`mh1_isolated_pairs`].
 //!   Meet/Join = d_⊕-geodesic interpolants.
 //! - **Logical Morse compression**:
-//!   [`meet_join_closure`], [`critical_generator_base`], [`regeneration_loss`].
+//!   [`refine_coarsen_closure`], [`critical_generator_base`], [`regeneration_loss`].
 //!   Lossless store compression to its canonical irreducible generating base.
 
 #[cfg(not(feature = "std"))]
@@ -168,7 +168,7 @@ pub fn mh1_isolated_pairs(store: &[Partition]) -> Vec<(i64, u64)> {
 /// capped at `cap` elements (for tractability on large universes).
 ///
 /// the closure operator under which a store's canonical generating base regenerates it.
-pub fn meet_join_closure(gen: &[Partition], cap: usize) -> Vec<Partition> {
+pub fn refine_coarsen_closure(gen: &[Partition], cap: usize) -> Vec<Partition> {
     let mut set: Vec<Partition> = Vec::new();
     let mut keys: HashSet<Vec<u32>> = HashSet::new();
     for g in gen {
@@ -205,7 +205,7 @@ pub fn meet_join_closure(gen: &[Partition], cap: usize) -> Vec<Partition> {
 /// Regeneration loss: number of `store` cells whose dit-profile is NOT in `closure(gen)`.
 /// Zero ⟺ `gen` is a lossless generating base of `store`.
 pub fn regeneration_loss(gen: &[Partition], store: &[Partition], cap: usize) -> usize {
-    let cl = meet_join_closure(gen, cap);
+    let cl = refine_coarsen_closure(gen, cap);
     let ck: HashSet<Vec<u32>> = cl.iter().map(key).collect();
     store.iter().filter(|s| !ck.contains(&key(s))).count()
 }

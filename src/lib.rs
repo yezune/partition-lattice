@@ -214,7 +214,7 @@ pub mod cyclic;
 pub mod cyclic_residual;
 #[cfg(feature = "std")]
 pub mod cyclic_wide;
-pub mod delta_meet;
+pub mod delta_refine;
 #[cfg(feature = "research")]
 pub mod derivation;
 #[cfg(feature = "research")]
@@ -270,7 +270,7 @@ pub use acceleration::{AccelPolicy, AccelerationBackend, CpuBackend};
 pub use change_localization::change_localization;
 pub use curvature::discrete_curvature;
 #[cfg(feature = "std")]
-pub use cyclic::{cyclic_meet, CyclicPartition, MAX_CYCLE};
+pub use cyclic::{cyclic_refine, CyclicPartition, MAX_CYCLE};
 #[cfg(feature = "std")]
 pub use cyclic_residual::CyclicWithResidual;
 #[cfg(feature = "std")]

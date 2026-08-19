@@ -483,11 +483,11 @@ fn lcm_u(a: usize, b: usize) -> usize {
 ///
 /// # Panics
 /// - If `c1.size() != c2.size()`.
-pub fn cyclic_meet(c1: &CyclicPartition, c2: &CyclicPartition) -> Option<CyclicPartition> {
+pub fn cyclic_refine(c1: &CyclicPartition, c2: &CyclicPartition) -> Option<CyclicPartition> {
     assert_eq!(
         c1.size(),
         c2.size(),
-        "cyclic_meet: partition sizes must match ({} vs {})",
+        "cyclic_refine: partition sizes must match ({} vs {})",
         c1.size(),
         c2.size()
     );
@@ -769,7 +769,7 @@ mod tests {
 
     // ─── lcm Meet closure tests ────────────────────────────────────────────
 
-    /// B-C1 — lcm closure: `cyclic_meet` returns Some iff lcm(L₁, L₂) ≤ MAX_CYCLE.
+    /// B-C1 — lcm closure: `cyclic_refine` returns Some iff lcm(L₁, L₂) ≤ MAX_CYCLE.
     #[test]
     fn test_cyclic_meet_lcm_closure_some_none() {
         let pairs: &[((usize, usize), bool)] = &[
@@ -798,11 +798,11 @@ mod tests {
                 let p2: Vec<u32> = (l1 as u32..(l1 + l2) as u32).collect();
                 let c1 = CyclicPartition::from_pattern(&p1, n);
                 let c2 = CyclicPartition::from_pattern(&p2, n);
-                let result = cyclic_meet(&c1, &c2);
+                let result = cyclic_refine(&c1, &c2);
                 assert_eq!(
                     result.is_some(),
                     expect_some,
-                    "cyclic_meet({}, {}) at N={}: expected Some={}, got Some={}",
+                    "cyclic_refine({}, {}) at N={}: expected Some={}, got Some={}",
                     l1,
                     l2,
                     n,
@@ -825,7 +825,7 @@ mod tests {
         }
     }
 
-    /// Bit-exact on the Some branch: the cyclic_meet result matches
+    /// Bit-exact on the Some branch: the cyclic_refine result matches
     /// FastPartition::differentiate over the same input.
     #[test]
     fn test_cyclic_meet_lcm_bit_exact() {
@@ -849,7 +849,7 @@ mod tests {
                 total += 1;
                 let c1 = CyclicPartition::from_pattern(p1, n);
                 let c2 = CyclicPartition::from_pattern(p2, n);
-                let merged = cyclic_meet(&c1, &c2).expect("lcm should be in-range");
+                let merged = cyclic_refine(&c1, &c2).expect("lcm should be in-range");
                 // Reference: FastPartition::differentiate on the materialized inputs.
                 let f1 = c1.to_fast_partition();
                 let f2 = c2.to_fast_partition();
@@ -865,7 +865,7 @@ mod tests {
                 assert_eq!(
                     merged_canon.get_ids(),
                     ref_canon.get_ids(),
-                    "cyclic_meet vs FastPartition::differentiate MISMATCH for ({:?}, {:?}) at N={}",
+                    "cyclic_refine vs FastPartition::differentiate MISMATCH for ({:?}, {:?}) at N={}",
                     p1,
                     p2,
                     n
@@ -891,7 +891,7 @@ mod tests {
             for &n in &universes {
                 let c1 = CyclicPartition::from_pattern(p1, n);
                 let c2 = CyclicPartition::from_pattern(p2, n);
-                let merged = cyclic_meet(&c1, &c2).unwrap();
+                let merged = cyclic_refine(&c1, &c2).unwrap();
                 let f_ref = c1
                     .to_fast_partition()
                     .differentiate(&c2.to_fast_partition());
@@ -935,15 +935,15 @@ mod tests {
         let p2 = vec![0u32, 1];
         let c1 = CyclicPartition::from_pattern(&p1, 65536);
         let c2 = CyclicPartition::from_pattern(&p2, 65536);
-        let merged = cyclic_meet(&c1, &c2).unwrap();
+        let merged = cyclic_refine(&c1, &c2).unwrap();
         assert!(
             merged.memory_usage() <= 128,
-            "cyclic_meet result memory ({}) must remain ≤ 128 bytes",
+            "cyclic_refine result memory ({}) must remain ≤ 128 bytes",
             merged.memory_usage()
         );
         // And independent of |U|: same lcm pair at N=1024 should give the
         // same compact size.
-        let small = cyclic_meet(
+        let small = cyclic_refine(
             &CyclicPartition::from_pattern(&p1, 1024),
             &CyclicPartition::from_pattern(&p2, 1024),
         )
@@ -957,12 +957,12 @@ mod tests {
         // lcm(3, 5) = 15 > 8
         let c1 = CyclicPartition::from_pattern(&[0u32, 1, 2], 1024);
         let c2 = CyclicPartition::from_pattern(&[0u32, 1, 2, 3, 4], 1024);
-        assert!(cyclic_meet(&c1, &c2).is_none());
+        assert!(cyclic_refine(&c1, &c2).is_none());
 
         // lcm(4, 6) = 12 > 8
         let c3 = CyclicPartition::from_pattern(&[0u32, 1, 2, 3], 1024);
         let c4 = CyclicPartition::from_pattern(&[0u32, 1, 2, 3, 4, 5], 1024);
-        assert!(cyclic_meet(&c3, &c4).is_none());
+        assert!(cyclic_refine(&c3, &c4).is_none());
     }
 
     /// Sanity: gcd / lcm helpers.

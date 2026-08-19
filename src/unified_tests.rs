@@ -1059,7 +1059,7 @@ fn test_should_use_sparse_join_detection() {
     let q = Partition::discrete(n);
     // max(K)=200000 × 3125 × 8 = 5GB >> 256MB → should trigger.
     assert!(
-        p.should_use_sparse_join(&q),
+        p.should_use_sparse_coarsen(&q),
         "Discrete partitions at N={n} should trigger sparse join (high K)"
     );
 }
@@ -1073,7 +1073,7 @@ fn test_should_not_use_sparse_join_small_k() {
     let q = Partition::from_ids(ids_b);
 
     assert!(
-        !p.should_use_sparse_join(&q),
+        !p.should_use_sparse_coarsen(&q),
         "K=10, N=100000: should NOT trigger sparse join"
     );
 }
@@ -1166,7 +1166,7 @@ fn test_pcs_e5_lossy_meet_error_before_fix() {
     );
 }
 
-// ── E8 Meet should_use_sparse_meet guard ───────
+// ── E8 Meet should_use_sparse_refine guard ───────
 
 #[test]
 fn test_pcs_e8_should_use_sparse_meet_detection() {
@@ -1177,8 +1177,8 @@ fn test_pcs_e8_should_use_sparse_meet_detection() {
     let p = Partition::from_ids((0..n as u32).map(|i| i % k).collect());
     let q = Partition::from_ids((0..n as u32).map(|i| (i * 7 + 3) % k).collect());
     assert!(
-        p.should_use_sparse_meet(&q),
-        "should_use_sparse_meet must trigger for K₁·K₂·words·8 > 8MB"
+        p.should_use_sparse_refine(&q),
+        "should_use_sparse_refine must trigger for K₁·K₂·words·8 > 8MB"
     );
 }
 
@@ -1188,8 +1188,8 @@ fn test_pcs_e8_should_not_use_sparse_meet_small() {
     let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
     let q = Partition::from_ids(vec![0, 1, 0, 1, 2, 3, 2, 3, 4, 4]);
     assert!(
-        !p.should_use_sparse_meet(&q),
-        "should_use_sparse_meet must NOT trigger for small K"
+        !p.should_use_sparse_refine(&q),
+        "should_use_sparse_refine must NOT trigger for small K"
     );
 }
 
@@ -1244,13 +1244,13 @@ fn test_pcs_e7_diagnose_consistency() {
     let p = Partition::from_ids((0..n as u32).map(|i| i % k).collect());
     let q = Partition::from_ids((0..n as u32).map(|i| (i * 7 + 3) % k).collect());
 
-    // Meet: diagnose(Meet) == Sparse ↔ should_use_sparse_meet == true
+    // Meet: diagnose(Meet) == Sparse ↔ should_use_sparse_refine == true
     let diag_meet = p.diagnose(PartitionOp::Meet, &q);
-    let legacy_meet = p.should_use_sparse_meet(&q);
+    let legacy_meet = p.should_use_sparse_refine(&q);
     assert_eq!(
         diag_meet == DispatchAdvice::Sparse,
         legacy_meet,
-        "diagnose(Meet) must match should_use_sparse_meet"
+        "diagnose(Meet) must match should_use_sparse_refine"
     );
 
     // Metric: diagnose(Metric) == Streaming ↔ should_use_streaming == true
@@ -1297,7 +1297,7 @@ fn test_pcs_e8_differentiate_exact_high_k() {
 #[test]
 fn test_pcs_e10_join_sqrt_n_boundary() {
     // K=√N is the theoretical boundary where Join cost transitions.
-    // At N=1M K=1000: should_use_sparse_join triggers (1000*125KB=125MB < 256MB? No)
+    // At N=1M K=1000: should_use_sparse_coarsen triggers (1000*125KB=125MB < 256MB? No)
     // Let's verify: at N=1M, K=1000: k_max=1000, words=15625, mem=1000*15625*8=125MB < 256MB
     // So this stays on Fast path with elementwise integrate.
     let n = 1_000_000;
@@ -1378,7 +1378,7 @@ fn test_pcs_e9_diagnose_overhead() {
 
 #[test]
 fn test_pcs_e10_meet_sqrt_n_boundary() {
-    // Meet at K=√N: should route through Sparse via should_use_sparse_meet
+    // Meet at K=√N: should route through Sparse via should_use_sparse_refine
     let n = 1_000_000;
     let k = 1000u32;
     let ids_a: Vec<u32> = (0..n as u32).map(|i| i % k).collect();

@@ -10,9 +10,9 @@
 //! | Operation | Memory | Accuracy |
 //! |-----------|--------|----------|
 //! | [`streaming_entropy`] | O(K) | exact |
-//! | [`fused_meet_entropy`] | O(K₁×K₂) | exact |
+//! | [`fused_refine_entropy`] | O(K₁×K₂) | exact |
 //! | [`streaming_ditset_xor_distance`] | O(K₁+K₂+K₁K₂) | exact |
-//! | [`block_graph_join_entropy`] | O(K₁×K₂) | exact |
+//! | [`block_graph_coarsen_entropy`] | O(K₁×K₂) | exact |
 //!
 //! # Mathematical Basis
 //!
@@ -34,17 +34,17 @@
 //! let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1]);
 //!
 //! // Compute h(p ∧ q) without materializing the meet
-//! let h = streaming::fused_meet_entropy(&p, &q, 2);
+//! let h = streaming::fused_refine_entropy(&p, &q, 2);
 //! assert!((h - p.differentiate(&q).logical_entropy()).abs() < 1e-12);
 //!
 //! // Compute h(p ∨ q) without materializing the join
-//! let hj = streaming::block_graph_join_entropy(&p, &q, 2);
+//! let hj = streaming::block_graph_coarsen_entropy(&p, &q, 2);
 //! assert!((hj - p.integrate(&q).logical_entropy()).abs() < 1e-12);
 //! ```
 //!
 //! > **Doctest note.** The per-function examples below are marked `ignore` (illustrative
 //! > only). Their numerical correctness is exercised by the `#[test]` suite at the bottom of
-//! > this file (`streaming_entropy` / `fused_meet_entropy` / … `_matches_direct`), which uses
+//! > this file (`streaming_entropy` / `fused_refine_entropy` / … `_matches_direct`), which uses
 //! > the same API. They are `ignore`d because rustdoc compiles one separate binary per runnable
 //! > example, and this crate is a wide fan-in dependency — so the workspace doctest phase paid
 //! > ~1.7 s × N of link cost (and hit the 60 s "slow test" marker under full-suite load). The
@@ -160,7 +160,7 @@ pub fn streaming_entropy(partition: &Partition, chunk_size: usize) -> f64 {
 /// use partition_lattice::{Partition, streaming};
 /// let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
 /// let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
-/// let h = streaming::fused_meet_entropy(&p, &q, 4);
+/// let h = streaming::fused_refine_entropy(&p, &q, 4);
 /// let direct = p.differentiate(&q).logical_entropy();
 /// assert!((h - direct).abs() < 1e-12);
 /// ```
@@ -168,7 +168,7 @@ pub fn streaming_entropy(partition: &Partition, chunk_size: usize) -> f64 {
 /// # Panics
 ///
 /// Panics if the two partitions have different universe sizes.
-pub fn fused_meet_entropy(p: &Partition, q: &Partition, chunk_size: usize) -> f64 {
+pub fn fused_refine_entropy(p: &Partition, q: &Partition, chunk_size: usize) -> f64 {
     assert_eq!(
         p.size(),
         q.size(),
@@ -277,7 +277,7 @@ pub fn streaming_ditset_xor_distance(p: &Partition, q: &Partition, chunk_size: u
 /// use partition_lattice::{Partition, streaming};
 /// let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
 /// let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
-/// let h = streaming::block_graph_join_entropy(&p, &q, 4);
+/// let h = streaming::block_graph_coarsen_entropy(&p, &q, 4);
 /// let direct = p.integrate(&q).logical_entropy();
 /// assert!((h - direct).abs() < 1e-12);
 /// ```
@@ -285,7 +285,7 @@ pub fn streaming_ditset_xor_distance(p: &Partition, q: &Partition, chunk_size: u
 /// # Panics
 ///
 /// Panics if the two partitions have different universe sizes.
-pub fn block_graph_join_entropy(p: &Partition, q: &Partition, chunk_size: usize) -> f64 {
+pub fn block_graph_coarsen_entropy(p: &Partition, q: &Partition, chunk_size: usize) -> f64 {
     assert_eq!(
         p.size(),
         q.size(),
@@ -446,7 +446,7 @@ pub fn par_streaming_entropy(partition: &Partition) -> f64 {
 
 /// Parallel streaming h(π ∧ σ) via per-core composite block count accumulation.
 ///
-/// Falls back to sequential [`fused_meet_entropy`] when N < 200K.
+/// Falls back to sequential [`fused_refine_entropy`] when N < 200K.
 ///
 /// # Examples
 ///
@@ -454,14 +454,14 @@ pub fn par_streaming_entropy(partition: &Partition) -> f64 {
 /// use partition_lattice::{Partition, streaming};
 /// let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
 /// let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
-/// let h = streaming::par_fused_meet_entropy(&p, &q);
+/// let h = streaming::par_fused_refine_entropy(&p, &q);
 /// assert!((h - p.differentiate(&q).logical_entropy()).abs() < 1e-12);
 /// ```
 ///
 /// # Panics
 ///
 /// Panics if the two partitions have different universe sizes.
-pub fn par_fused_meet_entropy(p: &Partition, q: &Partition) -> f64 {
+pub fn par_fused_refine_entropy(p: &Partition, q: &Partition) -> f64 {
     assert_eq!(
         p.size(),
         q.size(),
@@ -469,7 +469,7 @@ pub fn par_fused_meet_entropy(p: &Partition, q: &Partition) -> f64 {
     );
     let n = p.size();
     if n < PAR_N_MIN {
-        return fused_meet_entropy(p, q, (n / 4).max(1));
+        return fused_refine_entropy(p, q, (n / 4).max(1));
     }
 
     let p_ids = p.get_ids();
@@ -595,7 +595,7 @@ pub fn par_streaming_ditset_xor_distance(p: &Partition, q: &Partition) -> f64 {
 
 /// Parallel streaming h(π ∨ σ) via block-graph Union-Find.
 ///
-/// Falls back to sequential [`block_graph_join_entropy`] when N < 200K.
+/// Falls back to sequential [`block_graph_coarsen_entropy`] when N < 200K.
 ///
 /// # Examples
 ///
@@ -603,14 +603,14 @@ pub fn par_streaming_ditset_xor_distance(p: &Partition, q: &Partition) -> f64 {
 /// use partition_lattice::{Partition, streaming};
 /// let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
 /// let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
-/// let h = streaming::par_block_graph_join_entropy(&p, &q);
+/// let h = streaming::par_block_graph_coarsen_entropy(&p, &q);
 /// assert!((h - p.integrate(&q).logical_entropy()).abs() < 1e-12);
 /// ```
 ///
 /// # Panics
 ///
 /// Panics if the two partitions have different universe sizes.
-pub fn par_block_graph_join_entropy(p: &Partition, q: &Partition) -> f64 {
+pub fn par_block_graph_coarsen_entropy(p: &Partition, q: &Partition) -> f64 {
     assert_eq!(
         p.size(),
         q.size(),
@@ -618,7 +618,7 @@ pub fn par_block_graph_join_entropy(p: &Partition, q: &Partition) -> f64 {
     );
     let n = p.size();
     if n < PAR_N_MIN {
-        return block_graph_join_entropy(p, q, (n / 4).max(1));
+        return block_graph_coarsen_entropy(p, q, (n / 4).max(1));
     }
 
     let p_ids = p.get_ids();
@@ -951,7 +951,7 @@ mod tests {
         let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
         let direct = p.differentiate(&q).logical_entropy();
         for cs in [1, 2, 4, 8] {
-            let f = fused_meet_entropy(&p, &q, cs);
+            let f = fused_refine_entropy(&p, &q, cs);
             assert!((direct - f).abs() < EPS, "chunk={cs}: {direct} vs {f}");
         }
     }
@@ -960,7 +960,7 @@ mod tests {
     fn test_fused_meet_entropy_self() {
         let p = Partition::from_ids(vec![0, 0, 1, 2, 2, 2]);
         let direct = p.logical_entropy();
-        let fused = fused_meet_entropy(&p, &p, 3);
+        let fused = fused_refine_entropy(&p, &p, 3);
         assert!((direct - fused).abs() < EPS);
     }
 
@@ -982,7 +982,7 @@ mod tests {
         assert!(d.abs() < EPS, "self d_⊕ should be 0, got {d}");
     }
 
-    // ── block_graph_join_entropy ─────────────────────────────────
+    // ── block_graph_coarsen_entropy ─────────────────────────────────
 
     #[test]
     fn test_bg_join_entropy_matches_direct() {
@@ -990,7 +990,7 @@ mod tests {
         let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
         let direct = p.integrate(&q).logical_entropy();
         for cs in [1, 2, 4, 8] {
-            let bg = block_graph_join_entropy(&p, &q, cs);
+            let bg = block_graph_coarsen_entropy(&p, &q, cs);
             assert!((direct - bg).abs() < EPS, "chunk={cs}: {direct} vs {bg}");
         }
     }
@@ -999,7 +999,7 @@ mod tests {
     fn test_bg_join_entropy_self() {
         let p = Partition::from_ids(vec![0, 0, 1, 2, 2, 2]);
         let direct = p.logical_entropy();
-        let bg = block_graph_join_entropy(&p, &p, 3);
+        let bg = block_graph_coarsen_entropy(&p, &p, 3);
         assert!((direct - bg).abs() < EPS);
     }
 
@@ -1009,7 +1009,7 @@ mod tests {
         // P∨Q: chain 0↔1↔2↔3↔4↔5 → single block, h=0
         let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2]);
         let q = Partition::from_ids(vec![0, 1, 1, 2, 2, 3]);
-        let bg = block_graph_join_entropy(&p, &q, 2);
+        let bg = block_graph_coarsen_entropy(&p, &q, 2);
         assert!(bg.abs() < EPS, "chain: expected 0, got {bg}");
     }
 
@@ -1017,14 +1017,14 @@ mod tests {
     fn test_bg_join_entropy_empty() {
         let p = Partition::from_ids(vec![]);
         let q = Partition::from_ids(vec![]);
-        assert_eq!(block_graph_join_entropy(&p, &q, 10), 0.0);
+        assert_eq!(block_graph_coarsen_entropy(&p, &q, 10), 0.0);
     }
 
     #[test]
     fn test_bg_join_entropy_indiscrete() {
         let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2]);
         let q = Partition::indiscrete(6);
-        let bg = block_graph_join_entropy(&p, &q, 3);
+        let bg = block_graph_coarsen_entropy(&p, &q, 3);
         assert!(bg.abs() < EPS, "indiscrete join: {bg}");
     }
 
@@ -1035,7 +1035,7 @@ mod tests {
         let q = Partition::from_ids((0..n as u32).map(|i| i % 15).collect());
         // block_graph uses exact join entropy, compare with integrate_exact
         let direct = p.integrate_exact(&q).logical_entropy();
-        let bg = block_graph_join_entropy(&p, &q, 1_000);
+        let bg = block_graph_coarsen_entropy(&p, &q, 1_000);
         assert!((direct - bg).abs() < EPS, "10k: {direct} vs {bg}");
     }
 
@@ -1046,7 +1046,7 @@ mod tests {
         let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
         let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
         let direct = p.differentiate(&q).logical_entropy();
-        let par = par_fused_meet_entropy(&p, &q);
+        let par = par_fused_refine_entropy(&p, &q);
         assert!((direct - par).abs() < EPS, "par meet: {direct} vs {par}");
     }
 
@@ -1054,14 +1054,14 @@ mod tests {
     fn test_par_fused_meet_entropy_empty() {
         let p = Partition::from_ids(vec![]);
         let q = Partition::from_ids(vec![]);
-        assert_eq!(par_fused_meet_entropy(&p, &q), 0.0);
+        assert_eq!(par_fused_refine_entropy(&p, &q), 0.0);
     }
 
     #[test]
     fn test_par_fused_meet_entropy_self() {
         let p = Partition::from_ids(vec![0, 0, 1, 2, 2, 2]);
         let direct = p.logical_entropy();
-        let par = par_fused_meet_entropy(&p, &p);
+        let par = par_fused_refine_entropy(&p, &p);
         assert!((direct - par).abs() < EPS);
     }
 
@@ -1094,7 +1094,7 @@ mod tests {
         let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3]);
         let q = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1]);
         let direct = p.integrate(&q).logical_entropy();
-        let par = par_block_graph_join_entropy(&p, &q);
+        let par = par_block_graph_coarsen_entropy(&p, &q);
         assert!((direct - par).abs() < EPS, "par join: {direct} vs {par}");
     }
 
@@ -1102,7 +1102,7 @@ mod tests {
     fn test_par_block_graph_join_entropy_transitive_chain() {
         let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2]);
         let q = Partition::from_ids(vec![0, 1, 1, 2, 2, 3]);
-        let par = par_block_graph_join_entropy(&p, &q);
+        let par = par_block_graph_coarsen_entropy(&p, &q);
         assert!(par.abs() < EPS, "par chain join: expected 0, got {par}");
     }
 
@@ -1119,11 +1119,11 @@ mod tests {
             "h_sigma"
         );
         assert!(
-            (m.h_meet - fused_meet_entropy(&p, &q, 10)).abs() < EPS,
+            (m.h_meet - fused_refine_entropy(&p, &q, 10)).abs() < EPS,
             "h_meet"
         );
         assert!(
-            (m.h_join - block_graph_join_entropy(&p, &q, 10)).abs() < EPS,
+            (m.h_join - block_graph_coarsen_entropy(&p, &q, 10)).abs() < EPS,
             "h_join"
         );
 
@@ -1158,7 +1158,7 @@ mod tests {
         assert!((streaming_entropy(&p, 1_000) - direct_h).abs() < EPS);
 
         let direct_mh = p.differentiate(&q).logical_entropy();
-        assert!((fused_meet_entropy(&p, &q, 1_000) - direct_mh).abs() < EPS);
+        assert!((fused_refine_entropy(&p, &q, 1_000) - direct_mh).abs() < EPS);
 
         let direct_d = p.ditset_xor_distance(&q);
         assert!((streaming_ditset_xor_distance(&p, &q, 1_000) - direct_d).abs() < EPS);

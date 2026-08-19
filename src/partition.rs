@@ -294,11 +294,11 @@ impl PartitionLattice {
     ///
     /// let p1 = PartitionLattice::from_ids(vec![0, 0, 1, 1]);
     /// let p2 = PartitionLattice::from_ids(vec![0, 1, 0, 1]);
-    /// let (meet, interference) = p1.complex_meet(&p2, 0, 0); // in phase
+    /// let (meet, interference) = p1.complex_refine(&p2, 0, 0); // in phase
     /// assert!((interference - 1.0).abs() < 1e-10); // fully constructive
     /// ```
     ///
-    pub fn complex_meet(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
+    pub fn complex_refine(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
         // 1. Ordinary meet (common refinement).
         let meet_partition = self.differentiate(other);
 
@@ -701,12 +701,12 @@ mod tests {
         assert!((p.logical_area() - 8.5).abs() < 1e-10);
     }
 
-    /// `complex_meet()` in phase — fully constructive interference.
+    /// `complex_refine()` in phase — fully constructive interference.
     #[test]
     fn test_partition_complex_meet_same_phase() {
         let p1 = PartitionLattice::from_ids(vec![0u32, 0, 1, 1]); // {{0,1}, {2,3}}
         let p2 = PartitionLattice::from_ids(vec![0u32, 1, 0, 1]); // {{0,2}, {1,3}}
-        let (meet, interference) = p1.complex_meet(&p2, 0, 0); // in phase
+        let (meet, interference) = p1.complex_refine(&p2, 0, 0); // in phase
 
         // The meet is the finest refinement: {{0}, {1}, {2}, {3}}.
         assert_eq!(meet.block_count(), 4);
@@ -714,24 +714,24 @@ mod tests {
         assert!((interference - 1.0).abs() < 1e-10);
     }
 
-    /// `complex_meet()` in antiphase — destructive interference.
+    /// `complex_refine()` in antiphase — destructive interference.
     #[test]
     fn test_partition_complex_meet_opposite_phase() {
         let p1 = PartitionLattice::from_ids(vec![0u32, 0, 1, 1]);
         let p2 = PartitionLattice::from_ids(vec![0u32, 1, 0, 1]);
-        let (_, interference) = p1.complex_meet(&p2, 0, -128); // pi phase difference
+        let (_, interference) = p1.complex_refine(&p2, 0, -128); // pi phase difference
 
         // cos(pi)^2 = (-1)^2 = 1.0; note that cos^2 is always non-negative,
         // so modelling true cancellation would need a different form such as cos(theta/2)^2.
         assert!((0.0..=1.0).contains(&interference));
     }
 
-    /// `complex_meet()` at orthogonal phase (π/2).
+    /// `complex_refine()` at orthogonal phase (π/2).
     #[test]
     fn test_partition_complex_meet_orthogonal_phase() {
         let p1 = PartitionLattice::from_ids(vec![0u32, 0, 1, 1]);
         let p2 = PartitionLattice::from_ids(vec![0u32, 1, 0, 1]);
-        let (_, interference) = p1.complex_meet(&p2, 0, 64); // pi/2 phase difference
+        let (_, interference) = p1.complex_refine(&p2, 0, 64); // pi/2 phase difference
 
         // cos^2(θ/2) calculation
         let phase_diff_theta = 64.0 * core::f64::consts::PI / 128.0; // π/2

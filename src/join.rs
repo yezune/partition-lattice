@@ -1,7 +1,7 @@
 //! Join (∨, `integrate`) algorithms for the partition lattice.
 //!
 //! Currently hosts the CPU ShallowJoin implementation. Extracted from
-//! `unified.rs` as a self-contained pure algorithm; the `JoinStrategy` enum
+//! `unified.rs` as a self-contained pure algorithm; the `CoarsenStrategy` enum
 //! that selects between Shallow/Exact lives alongside the `Partition` dispatch
 //! types in `unified.rs`.
 

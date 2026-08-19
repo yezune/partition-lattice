@@ -55,10 +55,10 @@ use crate::Partition;
 pub type EntropyHandler = Box<dyn Fn(&Partition) -> Option<f64> + Send + Sync>;
 
 /// Handler function for distributed meet-entropy computation.
-pub type MeetEntropyHandler = Box<dyn Fn(&Partition, &Partition) -> Option<f64> + Send + Sync>;
+pub type RefineEntropyHandler = Box<dyn Fn(&Partition, &Partition) -> Option<f64> + Send + Sync>;
 
 static ENTROPY_HOOK: OnceLock<EntropyHandler> = OnceLock::new();
-static MEET_ENTROPY_HOOK: OnceLock<MeetEntropyHandler> = OnceLock::new();
+static MEET_ENTROPY_HOOK: OnceLock<RefineEntropyHandler> = OnceLock::new();
 
 /// Register a distributed entropy handler.
 ///
@@ -69,7 +69,7 @@ pub fn register_entropy_handler(f: EntropyHandler) -> Result<(), EntropyHandler>
 }
 
 /// Register a distributed meet-entropy handler.
-pub fn register_meet_entropy_handler(f: MeetEntropyHandler) -> Result<(), MeetEntropyHandler> {
+pub fn register_refine_entropy_handler(f: RefineEntropyHandler) -> Result<(), RefineEntropyHandler> {
     MEET_ENTROPY_HOOK.set(f)
 }
 

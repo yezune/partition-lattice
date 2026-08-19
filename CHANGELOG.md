@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.2.0 — breaking
+
+**Every public name containing `meet` or `join` was renamed to `refine` or `coarsen`.**
+No aliases were left behind.
+
+| removed | use |
+|---|---|
+| `complex_meet` | `complex_refine` |
+| `cyclic_meet` | `cyclic_refine` |
+| `cover_meet` / `cover_join` | `cover_refine` / `cover_coarsen` |
+| `fused_join_cover` | `fused_coarsen_cover` |
+| `fused_meet_entropy{,_ids}`, `par_fused_meet_entropy` | `fused_refine_entropy{,_ids}`, `par_fused_refine_entropy` |
+| `block_graph_join_entropy`, `par_block_graph_join_entropy` | `block_graph_coarsen_entropy`, `par_block_graph_coarsen_entropy` |
+| `distributed_meet_entropy` / `distributed_join_entropy` | `distributed_refine_entropy` / `distributed_coarsen_entropy` |
+| `reduce_meet_entropy` / `reduce_join_entropy` | `reduce_refine_entropy` / `reduce_coarsen_entropy` |
+| `should_use_sparse_meet` / `should_use_sparse_join` | `should_use_sparse_refine` / `should_use_sparse_coarsen` |
+| `incremental_meet{,_fast}` | `incremental_refine{,_fast}` |
+| `meet_join_closure` | `refine_coarsen_closure` |
+| `betti0_via_join` | `betti0_via_coarsen` |
+| `fused_meet_refines` | `fused_refine_and_check` |
+| `register_meet_entropy_handler`, `MeetEntropyHandler` | `register_refine_entropy_handler`, `RefineEntropyHandler` |
+| `JoinStrategy` | `CoarsenStrategy` |
+| `DeltaMeetEngine`, `DeltaMeetStats`, module `delta_meet` | `DeltaRefineEngine`, `DeltaRefineStats`, module `delta_refine` |
+
+### Why removal rather than deprecation
+
+The two conventions in the literature disagree about which lattice operation is the
+common refinement. In this crate `Meet` was the refinement; in Ellerman's papers the
+refinement is the *join*. A caller porting a formula from that side would have reached
+for the name that matched their reading, received a valid partition back, and never
+learned it was the other operation.
+
+Deprecation does not close that path: a deprecated function still returns an answer.
+Taking the name away is the only change that turns a silent wrong result into a
+compile error. `refine` and `coarsen` say what the operation does, so they read the
+same under either convention.
+
+`differentiate` and `integrate` are unchanged. They were never ambiguous — they name a
+direction of change, not a position in the lattice — and `refine` / `coarsen` are their
+synonyms, added in 0.1.2.
+
+### The measurement behind this
+
+Renaming is safe, and that is not an assumption. The order-decision procedure was
+checked exhaustively for self-duality:
+
+    s <= t  <=>  dual(t) <= dual(s)      6,055 terms, 36,663,025 pairs, 0 mismatches
+
+The two conventions are exact mirrors, so every true statement maps to a true one.
+That is also why the *convention* was left alone: switching it would buy convenience
+when reading papers and cost every existing caller a silent reversal. The naming was
+what needed fixing, not the convention.
+
+Not touched: `l-vm-gpu`'s Metal kernel names (`fused_meet_count` and friends) are
+internal to that crate and are not part of this package's surface.
+
+
+## 0.1.2
+
+Adds `Partition::refine` and `Partition::coarsen`: the same two operations named for
+what they do rather than for their position in the lattice.
+
+`meet` and `join` swap meaning between the two conventions in the literature — this
+crate's `Meet` is the common refinement, Ellerman's `join` is — so a formula ported
+without checking the convention silently computes the wrong thing. `refine` and
+`coarsen` read identically under either one.
+
+Pure delegation to `differentiate` / `integrate`; nothing else changes, and the older
+names are not deprecated.
+
 ## 0.1.1
 
 Metadata only; the library is byte-identical to 0.1.0.

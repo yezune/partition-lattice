@@ -143,7 +143,7 @@ impl ChangeSet {
 
 /// The Delta-Meet engine: incremental Meet.
 #[derive(Debug)]
-pub struct DeltaMeetEngine {
+pub struct DeltaRefineEngine {
     /// Cached previous state (block id → element set).
     previous_state: HashMap<u32, HashSet<usize>>,
     /// Current partition size.
@@ -156,7 +156,7 @@ pub struct DeltaMeetEngine {
     full_recomputes: u64,
 }
 
-impl DeltaMeetEngine {
+impl DeltaRefineEngine {
     /// Create a new engine.
     pub fn new(size: usize) -> Self {
         Self {
@@ -215,7 +215,7 @@ impl DeltaMeetEngine {
     /// Incremental Meet.
     ///
     /// Updates incrementally when the change ratio is low, otherwise recomputes in full.
-    pub fn incremental_meet(
+    pub fn incremental_refine(
         &mut self,
         base: &Partition,
         other: &Partition,
@@ -288,9 +288,9 @@ impl DeltaMeetEngine {
 
     /// Incremental Meet for `Partition`.
     #[deprecated(
-        note = "Use DeltaOpsEngine::incremental_meet instead — this method always falls back to full recompute"
+        note = "Use DeltaOpsEngine::incremental_refine instead — this method always falls back to full recompute"
     )]
-    pub fn incremental_meet_fast(
+    pub fn incremental_refine_fast(
         &mut self,
         base: &Partition,
         other: &Partition,
@@ -313,8 +313,8 @@ impl DeltaMeetEngine {
     }
 
     /// Read the statistics.
-    pub fn stats(&self) -> DeltaMeetStats {
-        DeltaMeetStats {
+    pub fn stats(&self) -> DeltaRefineStats {
+        DeltaRefineStats {
             incremental_updates: self.incremental_updates,
             full_recomputes: self.full_recomputes,
             incremental_ratio: if self.incremental_updates + self.full_recomputes > 0 {
@@ -335,7 +335,7 @@ impl DeltaMeetEngine {
 
 /// Delta-Meet statistics.
 #[derive(Debug, Clone)]
-pub struct DeltaMeetStats {
+pub struct DeltaRefineStats {
     /// Incremental updates performed.
     pub incremental_updates: u64,
     /// Full recomputations performed.
@@ -355,7 +355,7 @@ pub struct DeltaMeetStats {
 ///
 /// # Example
 /// ```
-/// use partition_lattice::delta_meet::{DeltaOpsEngine, ChangeSet};
+/// use partition_lattice::delta_refine::{DeltaOpsEngine, ChangeSet};
 /// use partition_lattice::unified::Partition;
 ///
 /// let p = Partition::from_ids(vec![0, 0, 1, 1, 2, 2]);
@@ -595,8 +595,8 @@ mod tests {
     }
 
     #[test]
-    fn test_delta_meet_engine_creation() {
-        let engine = DeltaMeetEngine::new(1000);
+    fn test_delta_refine_engine_creation() {
+        let engine = DeltaRefineEngine::new(1000);
         let stats = engine.stats();
 
         assert_eq!(stats.incremental_updates, 0);
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn test_compute_change_set_no_changes() {
-        let engine = DeltaMeetEngine::new(4);
+        let engine = DeltaRefineEngine::new(4);
 
         let p1 = Partition::from_ids(vec![0, 0, 1, 1]);
         let p2 = Partition::from_ids(vec![0, 0, 1, 1]);
@@ -616,7 +616,7 @@ mod tests {
 
     #[test]
     fn test_compute_change_set_with_changes() {
-        let engine = DeltaMeetEngine::new(4);
+        let engine = DeltaRefineEngine::new(4);
 
         let p1 = Partition::from_ids(vec![0, 0, 1, 1]);
         let p2 = Partition::from_ids(vec![0, 1, 1, 1]); // element 1 moves from block 0 to block 1
@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn test_incremental_meet_small_change() {
-        let mut engine = DeltaMeetEngine::new(100).with_threshold(0.1);
+        let mut engine = DeltaRefineEngine::new(100).with_threshold(0.1);
 
         let base = Partition::from_ids((0..100u32).map(|i| i % 10).collect());
         let other = Partition::from_ids((0..100u32).map(|i| i % 5).collect());
@@ -642,7 +642,7 @@ mod tests {
             changes.record_move(i as usize, i % 10, (i + 1) % 10);
         }
 
-        let (result, was_incremental) = engine.incremental_meet(&base, &other, Some(&changes));
+        let (result, was_incremental) = engine.incremental_refine(&base, &other, Some(&changes));
 
         // The change ratio is low, so the incremental path runs.
         assert!(was_incremental);
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_incremental_meet_large_change() {
-        let mut engine = DeltaMeetEngine::new(100).with_threshold(0.1);
+        let mut engine = DeltaRefineEngine::new(100).with_threshold(0.1);
 
         let base = Partition::from_ids((0..100u32).map(|i| i % 10).collect());
         let other = Partition::from_ids((0..100u32).map(|i| i % 5).collect());
@@ -667,7 +667,7 @@ mod tests {
             changes.record_move(i as usize, i % 10, (i + 1) % 10);
         }
 
-        let (_, was_incremental) = engine.incremental_meet(&base, &other, Some(&changes));
+        let (_, was_incremental) = engine.incremental_refine(&base, &other, Some(&changes));
 
         // The change ratio is high, so a full recomputation runs.
         assert!(!was_incremental);
@@ -675,7 +675,7 @@ mod tests {
 
     #[test]
     fn test_incremental_meet_correctness() {
-        let mut engine = DeltaMeetEngine::new(10).with_threshold(0.5);
+        let mut engine = DeltaRefineEngine::new(10).with_threshold(0.5);
 
         let base = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
         let other = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
@@ -683,7 +683,7 @@ mod tests {
         engine.initialize(&base);
 
         // Without change information the full recomputation guarantees an exact result.
-        let (result, was_incremental) = engine.incremental_meet(&base, &other, None);
+        let (result, was_incremental) = engine.incremental_refine(&base, &other, None);
         assert!(!was_incremental, "without change information the full path must run");
 
         // Compare against the full Meet.
@@ -695,14 +695,14 @@ mod tests {
         changes.record_move(0, 0, 1);
         changes.record_move(1, 0, 2);
 
-        let (_, was_incremental_2) = engine.incremental_meet(&base, &other, Some(&changes));
+        let (_, was_incremental_2) = engine.incremental_refine(&base, &other, Some(&changes));
         // 20% is below the 50% threshold, so the update is incremental.
         assert!(was_incremental_2, "a small change must take the incremental path");
     }
 
     #[test]
     fn test_stats_tracking() {
-        let mut engine = DeltaMeetEngine::new(100).with_threshold(0.1);
+        let mut engine = DeltaRefineEngine::new(100).with_threshold(0.1);
 
         let base = Partition::from_ids((0..100u32).collect());
         let other = Partition::from_ids((0..100u32).rev().collect());
@@ -711,10 +711,10 @@ mod tests {
 
         // A small change, incremental update.
         let small_changes = ChangeSet::new(); // no changes
-        engine.incremental_meet(&base, &other, Some(&small_changes));
+        engine.incremental_refine(&base, &other, Some(&small_changes));
 
         // Full recomputation without change information.
-        engine.incremental_meet(&base, &other, None);
+        engine.incremental_refine(&base, &other, None);
 
         let stats = engine.stats();
         assert_eq!(stats.incremental_updates, 1);
@@ -856,13 +856,13 @@ mod tests {
 
     #[test]
     fn test_delta_ops_engine_backward_compat() {
-        // Ensure DeltaMeetEngine still works independently
-        let mut old_engine = DeltaMeetEngine::new(10);
+        // Ensure DeltaRefineEngine still works independently
+        let mut old_engine = DeltaRefineEngine::new(10);
         let base = Partition::from_ids(vec![0, 0, 1, 1, 2, 2, 3, 3, 4, 4]);
         let other = Partition::from_ids(vec![0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
         old_engine.initialize(&base);
 
-        let (result, _) = old_engine.incremental_meet(&base, &other, None);
+        let (result, _) = old_engine.incremental_refine(&base, &other, None);
         assert_eq!(result.size(), 10);
 
         // DeltaOpsEngine should also work
@@ -876,7 +876,7 @@ mod tests {
     fn test_large_scale_performance() {
         // Scale test at N = 10000.
         let n = 10_000;
-        let mut engine = DeltaMeetEngine::new(n).with_threshold(0.05);
+        let mut engine = DeltaRefineEngine::new(n).with_threshold(0.05);
 
         let base = Partition::from_ids((0..n as u32).map(|i| i % 100).collect());
         let other = Partition::from_ids((0..n as u32).map(|i| i % 50).collect());
@@ -890,7 +890,7 @@ mod tests {
         }
 
         let start = std::time::Instant::now();
-        let (_, was_incremental) = engine.incremental_meet(&base, &other, Some(&changes));
+        let (_, was_incremental) = engine.incremental_refine(&base, &other, Some(&changes));
         let elapsed = start.elapsed();
 
         assert!(was_incremental);

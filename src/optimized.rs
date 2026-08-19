@@ -215,7 +215,7 @@ impl FastPartition {
 
     /// Complex Meet — a Meet weighted by phase interference (bitset version).
     ///
-    /// Same result as [`crate::PartitionLattice::complex_meet`].
+    /// Same result as [`crate::PartitionLattice::complex_refine`].
     ///
     /// # Example
     /// ```ignore
@@ -223,10 +223,10 @@ impl FastPartition {
     ///
     /// let p1 = FastPartition::from_ids(&[0, 0, 1, 1]);
     /// let p2 = FastPartition::from_ids(&[0, 1, 0, 1]);
-    /// let (meet, interference) = p1.complex_meet(&p2, 0, 64); // π/2 phase difference
+    /// let (meet, interference) = p1.complex_refine(&p2, 0, 64); // π/2 phase difference
     /// assert!(interference >= 0.0 && interference <= 1.0);
     /// ```
-    pub fn complex_meet(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
+    pub fn complex_refine(&self, other: &Self, phase_self: i8, phase_other: i8) -> (Self, f64) {
         // 1. Ordinary meet.
         let meet_partition = self.differentiate(other);
 
@@ -415,7 +415,7 @@ impl FastPartition {
     ///
     /// PCS-A3: The former lossy `*id % max_blocks` cap has been removed.
     /// Memory protection is now handled at the Partition enum level by
-    /// `should_use_sparse_meet()`, which routes large K₁×K₂ cases through
+    /// `should_use_sparse_refine()`, which routes large K₁×K₂ cases through
     /// SparsePartition before reaching this method.
     fn differentiate_elementwise(&self, other: &Self) -> Self {
         let mut map: HashMap<(u32, u32), u32> = HashMap::new();
@@ -722,7 +722,7 @@ impl FastPartition {
     ///
     /// More efficient than separate differentiate() + refines() since the refines check
     /// is done during the meet construction at zero extra cost.
-    pub fn fused_meet_refines(&self, other: &Self, old_model: &Self) -> (Self, bool) {
+    pub fn fused_refine_and_check(&self, other: &Self, old_model: &Self) -> (Self, bool) {
         let meet = self.differentiate(other);
         // O(N) refines check using element_to_block
         let does_refine = meet.refines(old_model);
@@ -1384,19 +1384,19 @@ mod tests {
 
     #[test]
     fn test_fused_meet_refines() {
-        // fused_meet_refines must return (meet, true) since meet always refines input
+        // fused_refine_and_check must return (meet, true) since meet always refines input
         let p1 = FastPartition::from_ids(&[0, 0, 1, 1, 2, 2, 3, 3]);
         let p2 = FastPartition::from_ids(&[0, 1, 0, 1, 0, 1, 0, 1]);
         let old = p1.clone();
 
-        let (meet, refines_old) = p1.fused_meet_refines(&p2, &old);
+        let (meet, refines_old) = p1.fused_refine_and_check(&p2, &old);
         let meet_ref = old.differentiate(&p2);
 
         assert_eq!(meet.get_ids(), meet_ref.get_ids());
         assert!(refines_old);
 
         // meet should NOT refine p2 in general (it's finer than both)
-        let (_, should_be_true) = p1.fused_meet_refines(&p2, &p1);
+        let (_, should_be_true) = p1.fused_refine_and_check(&p2, &p1);
         assert!(should_be_true); // meet of p1 and p2 refines p1
     }
 
@@ -1498,7 +1498,7 @@ mod tests {
     fn test_differentiate_elementwise_exact_for_large_n() {
         // PCS-A3: After lossy cap removal, elementwise differentiate
         // produces exact results. Memory protection is now handled at
-        // Partition enum level via should_use_sparse_meet().
+        // Partition enum level via should_use_sparse_refine().
         //
         // Direct FastPartition usage at large N will create many blocks
         // (potentially expensive), but results are mathematically correct.

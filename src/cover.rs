@@ -16,7 +16,7 @@
 //!
 //! ```text
 //! monolithic join:     80ms   (1.0x, baseline at N=200K)
-//! fused_join_cover:   139ms   (1.7x, cover-based)
+//! fused_coarsen_cover:   139ms   (1.7x, cover-based)
 //! ```
 //!
 //! # When to use (PCS R_cover regime)
@@ -217,7 +217,7 @@ pub fn glue_partitions_trusted(locals: &[Partition], cover: &UniverseCover) -> P
 /// Cover-based Meet: local differentiate + trusted glue.
 ///
 /// Equivalent to `p.differentiate(&q)` but computed locally.
-pub fn cover_meet(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
+pub fn cover_refine(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
     let left = restrict_cover(p, cover);
     let right = restrict_cover(q, cover);
     let locals: Vec<Partition> = left
@@ -231,7 +231,7 @@ pub fn cover_meet(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partit
 /// Cover-based Join: local integrate + trusted glue.
 ///
 /// Equivalent to `p.integrate(&q)` but computed locally.
-pub fn cover_join(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
+pub fn cover_coarsen(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
     let p_ids = p.get_ids();
     let q_ids = q.get_ids();
     let locals: Vec<Partition> = cover
@@ -257,7 +257,7 @@ pub fn cover_join(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partit
 ///
 /// 🔮 `dit_roundtrip_meet` + `dit_meet_projects_l/r` → correctness
 /// 🔮 `dit_restrict_idempotent` → idempotent restriction
-pub fn fused_join_cover(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
+pub fn fused_coarsen_cover(p: &Partition, q: &Partition, cover: &UniverseCover) -> Partition {
     assert_eq!(
         p.size(),
         q.size(),
@@ -526,7 +526,7 @@ mod tests {
             subsets: vec![vec![0, 1, 2, 3], vec![2, 3, 4, 5]],
         };
         let mono = p.differentiate(&q);
-        let cov = cover_meet(&p, &q, &cover);
+        let cov = cover_refine(&p, &q, &cover);
         assert!(partitions_equivalent(&mono, &cov));
     }
 
@@ -538,7 +538,7 @@ mod tests {
             subsets: vec![vec![0, 1, 2, 3], vec![2, 3, 4, 5]],
         };
         let mono = p.integrate(&q);
-        let cov = cover_join(&p, &q, &cover);
+        let cov = cover_coarsen(&p, &q, &cover);
         assert!(partitions_equivalent(&mono, &cov));
     }
 
@@ -550,7 +550,7 @@ mod tests {
             subsets: vec![vec![0, 1, 2, 3], vec![2, 3, 4, 5]],
         };
         let mono = p.integrate(&q);
-        let fused = fused_join_cover(&p, &q, &cover);
+        let fused = fused_coarsen_cover(&p, &q, &cover);
         assert!(partitions_equivalent(&mono, &fused));
     }
 
