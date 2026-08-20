@@ -309,7 +309,7 @@ impl SparsePartition {
 
     /// Computes the number of distinctions.
     /// dit(pi) = N^2 - Sigma|B|^2
-    pub fn distinction_count(&self) -> usize {
+    pub fn dit_count(&self) -> usize {
         if self.size == 0 {
             return 0;
         }
@@ -375,8 +375,8 @@ impl SparsePartition {
         //
         // |dit(P) intersect dit(Q)| = N^2 - (Sigma|B_P|^2 + Sigma|B_Q|^2 - sum_intersection_sq)
 
-        let dit_p = self.distinction_count();
-        let dit_q = other.distinction_count();
+        let dit_p = self.dit_count();
+        let dit_q = other.dit_count();
         let indit_union = self.sum_block_sizes_sq + other.sum_block_sizes_sq - sum_intersection_sq;
         let dit_intersection = n * n - indit_union;
 
@@ -605,10 +605,10 @@ mod tests {
 
     #[test]
     fn test_sparse_type_alignment() {
-        // size() returns usize, distinction_count() returns usize
+        // size() returns usize, dit_count() returns usize
         let sp = SparsePartition::from_ids(&[0, 0, 1, 1, 2]);
         let _s: usize = sp.size();
-        let _d: usize = sp.distinction_count();
+        let _d: usize = sp.dit_count();
         assert_eq!(_s, 5);
     }
 
@@ -947,8 +947,8 @@ mod tests {
             "N=100K entropy mismatch"
         );
 
-        // 2. distinction_count
-        assert_eq!(sp1.distinction_count(), dp1.distinction_count());
+        // 2. dit_count
+        assert_eq!(sp1.dit_count(), dp1.dit_count());
 
         // 3. Sparse self-consistency: fused entropy == differentiate entropy
         let sp_meet = sp1.differentiate(&sp2);

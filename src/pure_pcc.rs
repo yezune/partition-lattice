@@ -31,8 +31,8 @@ use alloc::vec::Vec;
 /// No float entropy is needed: the integer `|dit|` preserves the ordering of Δh.
 pub fn new_distinction_count(base: &Partition, candidate: &Partition) -> usize {
     base.differentiate(candidate)
-        .distinction_count()
-        .saturating_sub(base.distinction_count())
+        .dit_count()
+        .saturating_sub(base.dit_count())
 }
 
 /// Extract the nondominated indices — the general antichain primitive.
@@ -156,7 +156,7 @@ mod tests {
     #[test]
     fn test_new_distinction_count_integer_delta() {
         let top = p(&[0, 0, 0, 0]);
-        // top∧[0,0,1,1]=[0,0,1,1] → distinction_count=N²−Σ|B|²=16−8=8 (ordered); base top=0 → Δ=8.
+        // top∧[0,0,1,1]=[0,0,1,1] → dit_count=N²−Σ|B|²=16−8=8 (ordered); base top=0 → Δ=8.
         assert_eq!(new_distinction_count(&top, &p(&[0, 0, 1, 1])), 8);
         // No new distinctions (top ∧ top = top), so 0.
         assert_eq!(new_distinction_count(&top, &top), 0);
@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(step.antichain, vec![1]);
         // After a Meet the accumulated |dit| is non-negative, computed with integers only.
         let next = top.differentiate(&cands[step.richest]);
-        assert!(next.distinction_count() >= top.distinction_count());
+        assert!(next.dit_count() >= top.dit_count());
     }
 
     #[test]

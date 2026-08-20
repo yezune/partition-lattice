@@ -51,8 +51,8 @@ fn assert_ops_equal(ids: Vec<u32>) {
     );
     assert!((PartitionOps::logical_entropy(&pl) - PartitionOps::logical_entropy(&fp)).abs() < EPS);
     assert_eq!(
-        PartitionOps::distinction_count(&pl),
-        PartitionOps::distinction_count(&fp)
+        PartitionOps::dit_count(&pl),
+        PartitionOps::dit_count(&fp)
     );
     assert!((PartitionOps::logical_area(&pl) - PartitionOps::logical_area(&fp)).abs() < EPS);
 }
@@ -207,7 +207,7 @@ fn test_partition_auto_select_large_wide_cyclic() {
 /// Layer B-β-true: explicit factorized constructor must produce
 /// `Partition::FactorizedFast` and match dense Fast bit-for-bit on the
 /// scalar primitives (size, block_count, get_block, logical_entropy,
-/// distinction_count).
+/// dit_count).
 #[test]
 fn test_partition_factorized_fast_basic_invariants() {
     let mut ids: Vec<u32> = (0..256).map(|i| (i % 4) as u32).collect();
@@ -221,7 +221,7 @@ fn test_partition_factorized_fast_basic_invariants() {
     );
     assert_eq!(fac.size(), fast.size());
     assert_eq!(fac.block_count(), fast.block_count());
-    assert_eq!(fac.distinction_count(), fast.distinction_count());
+    assert_eq!(fac.dit_count(), fast.dit_count());
     assert!((fac.logical_entropy() - fast.logical_entropy()).abs() < EPS);
     for i in 0..ids.len() {
         assert_eq!(
@@ -1906,7 +1906,7 @@ fn test_layer_a_routing_get_ids_bit_exact_with_fast() {
         );
         assert!((p.logical_entropy() - fast.logical_entropy()).abs() < 1e-12);
         assert_eq!(p.block_count(), fast.block_count());
-        assert_eq!(p.distinction_count(), fast.distinction_count());
+        assert_eq!(p.dit_count(), fast.dit_count());
     }
 }
 

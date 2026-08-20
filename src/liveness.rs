@@ -127,7 +127,7 @@ pub fn assess<T: core::hash::Hash + Eq>(channels: &[&[T]]) -> LivenessReport {
     for ch in channels {
         let p = channel_partition(&ch[..ticks]);
         channel_h.push(p.logical_entropy());
-        if p.distinction_count() > 0 {
+        if p.dit_count() > 0 {
             varying_channels += 1;
         }
         joint = Some(match joint {

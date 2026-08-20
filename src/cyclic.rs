@@ -50,7 +50,7 @@
 //!
 //!   ⟹  cyclic.get_ids_owned()    == fast.get_ids()
 //!   ⟹  cyclic.logical_entropy()  == fast.logical_entropy()
-//!   ⟹  cyclic.distinction_count() == fast.distinction_count()
+//!   ⟹  cyclic.dit_count() == fast.dit_count()
 //!   ⟹  cyclic.block_count()      == fast.block_count()
 //! ```
 //!
@@ -343,7 +343,7 @@ macro_rules! cyclic_partition_impl {
             }
 
             /// `dit(π) = N² - Σ|B|²`. O(cycle_len) given `sum_block_sizes_sq`.
-            pub fn distinction_count(&self) -> usize {
+            pub fn dit_count(&self) -> usize {
                 if self.size == 0 {
                     return 0;
                 }
@@ -627,7 +627,7 @@ mod tests {
         }
     }
 
-    /// C2 — distinction_count is bit-exact with FastPartition.
+    /// C2 — dit_count is bit-exact with FastPartition.
     #[test]
     fn test_cyclic_bit_exact_distinction_count_with_fast_partition() {
         let patterns: Vec<&[u32]> = vec![
@@ -648,9 +648,9 @@ mod tests {
                 let fast = fast_from_pattern(pattern, n);
 
                 assert_eq!(
-                    cyclic.distinction_count(),
-                    fast.distinction_count(),
-                    "distinction_count MISMATCH for pattern {:?} at N={}",
+                    cyclic.dit_count(),
+                    fast.dit_count(),
+                    "dit_count MISMATCH for pattern {:?} at N={}",
                     pattern,
                     n
                 );
@@ -876,7 +876,7 @@ mod tests {
         assert_eq!(passed, total, "B-C2 bit-exact: {}/{} PASS", passed, total);
     }
 
-    /// B-C2 — entropy + distinction_count bit-exact for lcm-closed Meet.
+    /// B-C2 — entropy + dit_count bit-exact for lcm-closed Meet.
     #[test]
     fn test_cyclic_meet_metrics_bit_exact() {
         let pairs: &[(Vec<u32>, Vec<u32>)] = &[
@@ -908,9 +908,9 @@ mod tests {
                     h_ref
                 );
                 assert_eq!(
-                    merged.distinction_count(),
-                    f_ref.distinction_count(),
-                    "distinction_count MISMATCH for ({:?}, {:?}) at N={}",
+                    merged.dit_count(),
+                    f_ref.dit_count(),
+                    "dit_count MISMATCH for ({:?}, {:?}) at N={}",
                     p1,
                     p2,
                     n

@@ -285,8 +285,8 @@ impl OrbitPartition {
     }
 
     /// Distinction count `N² - Σ|B|²`. Currently O(N) via materialization.
-    pub fn distinction_count(&self) -> usize {
-        FastPartition::from_ids(&self.get_ids_owned()).distinction_count()
+    pub fn dit_count(&self) -> usize {
+        FastPartition::from_ids(&self.get_ids_owned()).dit_count()
     }
 
     /// Memory cost in bytes (sizeof Self). Constant regardless of N.
@@ -620,7 +620,7 @@ mod tests {
         let cp = CyclicPartition::from_pattern(&fd, 4096);
         assert_eq!(op.get_ids_owned(), cp.get_ids_owned());
         assert!((op.logical_entropy() - cp.logical_entropy()).abs() < 1e-12);
-        assert_eq!(op.distinction_count(), cp.distinction_count());
+        assert_eq!(op.dit_count(), cp.dit_count());
         assert_eq!(op.block_count(), cp.block_count());
     }
 

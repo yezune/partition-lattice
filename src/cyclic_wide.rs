@@ -134,7 +134,7 @@ mod tests {
         }
     }
 
-    /// A-C2 — distinction_count is bit-exact.
+    /// A-C2 — dit_count is bit-exact.
     #[test]
     fn test_wide_cyclic_bit_exact_distinction_count_with_fast_partition() {
         let patterns: Vec<Vec<u32>> = vec![
@@ -152,9 +152,9 @@ mod tests {
                 let wide = WideCyclicPartition::from_pattern(pattern, n);
                 let fast = fast_from_pattern(pattern, n);
                 assert_eq!(
-                    wide.distinction_count(),
-                    fast.distinction_count(),
-                    "distinction_count MISMATCH for L={} at N={}",
+                    wide.dit_count(),
+                    fast.dit_count(),
+                    "dit_count MISMATCH for L={} at N={}",
                     pattern.len(),
                     n
                 );

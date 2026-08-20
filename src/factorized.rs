@@ -407,7 +407,7 @@ impl FactorizedFastPartition {
     }
 
     /// Distinction count `dit(π) = N² - Σ|B|²`. O(1).
-    pub fn distinction_count(&self) -> usize {
+    pub fn dit_count(&self) -> usize {
         if self.size == 0 {
             return 0;
         }
@@ -721,7 +721,7 @@ mod tests {
         let ids = synth_ids(4096, 8, 13);
         let fp = fast_from_ids(&ids);
         let fz = FactorizedFastPartition::from_fast_partition(&fp, 64);
-        assert_eq!(fz.distinction_count(), fp.distinction_count());
+        assert_eq!(fz.dit_count(), fp.dit_count());
     }
 
     #[test]
@@ -760,7 +760,7 @@ mod tests {
         assert_eq!(fz.size(), 0);
         assert_eq!(fz.block_count(), 0);
         assert_eq!(fz.logical_entropy(), 0.0);
-        assert_eq!(fz.distinction_count(), 0);
+        assert_eq!(fz.dit_count(), 0);
         assert!(fz.get_ids_owned().is_empty());
     }
 

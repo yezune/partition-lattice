@@ -4,7 +4,7 @@
 //! derive-`Debug` `FastPartition` BitVec dump with a scale-aware, label-blind,
 //! *delegation-only* rendering. Pure DISPLAY — the engine (learning loop,
 //! `tlw::rank`, the 6 backends) is untouched; every rung reads existing
-//! accessors (`to_blocks`/`get_ids`/`distinction_count`/`num_blocks`/
+//! accessors (`to_blocks`/`get_ids`/`dit_count`/`num_blocks`/
 //! `block_sizes`) and re-implements no metric logic (SSOT).
 //!
 //! Ladder, governed by `N = size()`:
@@ -14,7 +14,7 @@
 //!
 //! Correction sealed here (WP-DIT-REPR RC2): the count-summary `h` is
 //! `logical_entropy() = 1 − Σ|B|²/N²` (rendered as the exact rational
-//! `distinction_count()/N²`), **not** the edge-density `|dit|/C(N,2)`.
+//! `dit_count()/N²`), **not** the edge-density `|dit|/C(N,2)`.
 //!
 //! Pair convention (WP-DIT-REPR RC1): the human surface reports `|dit|` as
 //! **unordered** `C(N,2)`; the engine keeps ordered-N². This is a boundary.
@@ -226,14 +226,14 @@ impl Partition {
 
     /// Rung C — lossy count-summary `⟨K=… | sizes=[…] | h=p/q | |dit|=… (of …) unordered⟩`.
     ///
-    /// **RC2 seal:** `h` is `logical_entropy() = distinction_count()/N²` (the
+    /// **RC2 seal:** `h` is `logical_entropy() = dit_count()/N²` (the
     /// exact rational), *not* the edge-density `|dit|_unordered/C(N,2)`.
     /// `|dit|` is reported unordered (RC1 display convention). Lossy: keeps only
     /// the block-size multiset (`⟨…⟩` marks it non-faithful).
     pub fn count_summary(&self) -> String {
         let n = self.size();
         let k = self.num_blocks();
-        let dit_ord = self.distinction_count(); // N² − Σ|B|² (ordered, = h numerator)
+        let dit_ord = self.dit_count(); // N² − Σ|B|² (ordered, = h numerator)
         let dit_unord = dit_ord / 2;
         let c2 = n * n.saturating_sub(1) / 2; // C(N,2)
         let (hn, hd) = if n == 0 { (0, 1) } else { reduce(dit_ord, n * n) };
@@ -278,7 +278,7 @@ impl Partition {
     /// (WP-DIT-REPR Phase 2). `dit(π) = ⋃_{i<j} Bᵢ⊗Bⱼ` rendered as a K×K grid: bracketed
     /// diagonal `[C(sᵢ,2)]` = indit (in-block non-dits), off-diagonal `sᵢ·sⱼ` = the dit
     /// bundle. Footer: `Σupper = |dit|` (unordered), invariant `Σupper + Σdiag = C(N,2)`,
-    /// `h`. Pure DISPLAY (block-size only; delegates to `to_blocks`/`distinction_count`).
+    /// `h`. Pure DISPLAY (block-size only; delegates to `to_blocks`/`dit_count`).
     pub fn bundle_grid(&self) -> String {
         let (sizes, grid) = bundle_grid_data(self);
         let k = sizes.len();
@@ -317,12 +317,12 @@ impl Partition {
             }
             lines.push(row);
         }
-        let dit_unord = self.distinction_count() / 2;
+        let dit_unord = self.dit_count() / 2;
         let sigma_diag: usize = sizes.iter().map(|&s| comb2(s)).sum();
         let (hn, hd) = if n == 0 {
             (0, 1)
         } else {
-            reduce(self.distinction_count(), n * n)
+            reduce(self.dit_count(), n * n)
         };
         let h_str = if hd == 1 {
             hn.to_string()
@@ -358,8 +358,8 @@ impl Partition {
         let i_ord = dit_intersection_ordered(self, other);
         let meet_p = self.differentiate(other);
         let join_p = self.integrate(other); // EXACT (measurement-only)
-        let dit_meet = meet_p.distinction_count();
-        let dit_join = join_p.distinction_count();
+        let dit_meet = meet_p.dit_count();
+        let dit_join = join_p.dit_count();
         let mut lines: Vec<String> = Vec::new();
         lines.push(format!("a     = {}", self.block_set_notation()));
         lines.push(format!("b     = {}", other.block_set_notation()));
@@ -432,8 +432,8 @@ impl Partition {
         lines.push(foot);
         // Meet/Join/gap summary (delegates to unified.rs Meet/Join).
         let i_ord = dit_intersection_ordered(self, other);
-        let dit_join = self.integrate(other).distinction_count();
-        let dit_meet = self.differentiate(other).distinction_count();
+        let dit_join = self.integrate(other).dit_count();
+        let dit_meet = self.differentiate(other).dit_count();
         lines.push(format!(
             "Meet (∧) = nonempty cells, |dit|={} (∪ exact)   Join (∨) = components, |dit|={}, gap={} (⊆∩={})",
             dit_meet / 2,
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn test_bundle_grid_data_invariant() {
-        // MP-1: Σupper == |dit| (unordered) == distinction_count()/2, and the
+        // MP-1: Σupper == |dit| (unordered) == dit_count()/2, and the
         // complete-multipartite identity Σupper + Σdiag == C(N,2).
         let refs: [Vec<u32>; 4] = [
             vec![0, 0, 1, 1, 1],                            // REF-A
@@ -584,7 +584,7 @@ mod tests {
                     }
                 }
             }
-            assert_eq!(sigma_upper, p.distinction_count() / 2, "Σupper == |dit| unordered");
+            assert_eq!(sigma_upper, p.dit_count() / 2, "Σupper == |dit| unordered");
             assert_eq!(sigma_upper + sigma_diag, comb2(n), "Σupper + Σdiag == C(N,2)");
         }
     }
@@ -602,8 +602,8 @@ mod tests {
             let b = Partition::from_ids(b_ids);
             let n = a.size();
             let i_ord = dit_intersection_ordered(&a, &b);
-            let dit_a = a.distinction_count();
-            let dit_b = b.distinction_count();
+            let dit_a = a.dit_count();
+            let dit_b = b.dit_count();
             // (1) grid d_⊕ == ditset_xor_distance (SSOT)
             let d_xor_ord = dit_a + dit_b - 2 * i_ord;
             let expect = a.ditset_xor_distance(&b);
@@ -613,12 +613,12 @@ mod tests {
             );
             // (2) |dit(a∧b)| == dit_a + dit_b − I  (Meet = ∪, exact)
             assert_eq!(
-                a.differentiate(&b).distinction_count(),
+                a.differentiate(&b).dit_count(),
                 dit_a + dit_b - i_ord,
                 "|dit(meet)| == dit_a + dit_b − |dit∩|"
             );
             // (3) Join ⊆ ∩ ⟹ gap ≥ 0
-            let dit_join = a.integrate(&b).distinction_count();
+            let dit_join = a.integrate(&b).dit_count();
             assert!(i_ord >= dit_join, "|dit(a∨b)| ≤ |dit(a)∩dit(b)|");
         }
     }

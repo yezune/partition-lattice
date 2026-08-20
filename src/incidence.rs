@@ -39,7 +39,7 @@ fn key(p: &Partition) -> Vec<u32> {
 /// |dit(p)| = number of ordered distinction pairs = N² − Σ|B|² (exact integer).
 #[inline]
 pub fn dit_count(p: &Partition) -> i64 {
-    p.distinction_count() as i64
+    p.dit_count() as i64
 }
 
 /// |dit(a) △ dit(b)| = ordered symmetric-difference count = 2·|dit(a∧b)| − |dit(a)| − |dit(b)|.

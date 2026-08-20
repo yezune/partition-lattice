@@ -74,7 +74,7 @@ pub trait PartitionOps: Clone + core::fmt::Debug + Send + Sync {
     fn logical_entropy(&self) -> f64;
 
     /// Number of distinctions: |dit(π)| = N² − Σ|B|²
-    fn distinction_count(&self) -> usize;
+    fn dit_count(&self) -> usize;
 
     /// Logical divergence: D_L(self‖other) = h(self ∧ other) − h(other)
     fn logical_divergence(&self, other: &Self) -> f64;
@@ -142,8 +142,8 @@ impl PartitionOps for PartitionLattice {
     fn logical_entropy(&self) -> f64 {
         self.logical_entropy()
     }
-    fn distinction_count(&self) -> usize {
-        self.distinction_count()
+    fn dit_count(&self) -> usize {
+        self.dit_count()
     }
     fn logical_divergence(&self, other: &Self) -> f64 {
         self.logical_divergence(other)
@@ -186,8 +186,8 @@ impl PartitionOps for FastPartition {
     fn logical_entropy(&self) -> f64 {
         self.logical_entropy()
     }
-    fn distinction_count(&self) -> usize {
-        self.distinction_count()
+    fn dit_count(&self) -> usize {
+        self.dit_count()
     }
     fn logical_divergence(&self, other: &Self) -> f64 {
         self.logical_divergence(other)
@@ -235,8 +235,8 @@ impl PartitionOps for SparsePartition {
     fn logical_entropy(&self) -> f64 {
         self.logical_entropy()
     }
-    fn distinction_count(&self) -> usize {
-        self.distinction_count()
+    fn dit_count(&self) -> usize {
+        self.dit_count()
     }
     fn logical_divergence(&self, other: &Self) -> f64 {
         self.logical_divergence(other)
@@ -988,8 +988,8 @@ impl Partition {
         dispatch!(self, |p| p.logical_entropy())
     }
 
-    pub fn distinction_count(&self) -> usize {
-        dispatch!(self, |p| p.distinction_count())
+    pub fn dit_count(&self) -> usize {
+        dispatch!(self, |p| p.dit_count())
     }
 
     /// Calculate mutual information between two partitions.

@@ -193,8 +193,8 @@ impl CyclicWithResidual {
     }
 
     /// Distinction count.
-    pub fn distinction_count(&self) -> usize {
-        FastPartition::from_ids(&self.get_ids_owned()).distinction_count()
+    pub fn dit_count(&self) -> usize {
+        FastPartition::from_ids(&self.get_ids_owned()).dit_count()
     }
 
     /// Distinct block count after considering exceptions.
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(passed, total, "D1-C1: {}/{} PASS", passed, total);
     }
 
-    /// D1-C2 — Exact mode entropy + distinction_count + block_count bit-exact.
+    /// D1-C2 — Exact mode entropy + dit_count + block_count bit-exact.
     #[test]
     fn test_residual_exact_metrics_bit_exact() {
         let cases: &[(Vec<u32>, Vec<(u32, u32)>, usize)] = &[
@@ -355,8 +355,8 @@ mod tests {
                 n
             );
             assert_eq!(
-                residual.distinction_count(),
-                f_ref.distinction_count(),
+                residual.dit_count(),
+                f_ref.dit_count(),
                 "distinction mismatch for base={:?} N={}",
                 base_pattern,
                 n

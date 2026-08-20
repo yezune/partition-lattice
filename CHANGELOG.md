@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0 — breaking
+
+`Partition::distinction_count` is now **`Partition::dit_count`**.
+
+One value had two names across the two packages: `distinction_count` in Rust,
+`dit_count` in Python. Anyone writing both would have to remember which is which for
+no reason. `dit_count` won because the rest of the vocabulary already uses *dit* —
+`ditset_xor_distance`, `incidence::dit_count` — and because it was the name already
+published to PyPI.
+
+`incidence::dit_count(&p)` (a free function) and `p.dit_count()` (a method) now share
+a name and agree exactly; that was checked over 2,000 random partitions before the
+rename, with 0 disagreements. Rust resolves the two without ambiguity.
+
+No alias was left behind, for the same reason as 0.2.0: a second name for one value is
+a question the reader has to answer every time they see it.
+
+
 ## 0.2.0 — breaking
 
 **Every public name containing `meet` or `join` was renamed to `refine` or `coarsen`.**

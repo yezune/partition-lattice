@@ -147,7 +147,7 @@ impl PartitionLattice {
     }
 
     /// `Σ|B|²` — the indit count (ordered same-block pairs, diagonal included).
-    /// [`Self::distinction_count`] and [`Self::repeat_ratio`] both delegate here.
+    /// [`Self::dit_count`] and [`Self::repeat_ratio`] both delegate here.
     /// Block sizes only — label-independent, and integer, so no floating point is involved.
     fn sum_block_sizes_sq(&self) -> usize {
         let mut counts = HashMap::new();
@@ -160,7 +160,7 @@ impl PartitionLattice {
     /// Returns the number of distinctions (dits).
     /// A distinction is an ordered pair (u, v) such that u and v are in different blocks.
     /// Count = N^2 - sum(|B|^2).
-    pub fn distinction_count(&self) -> usize {
+    pub fn dit_count(&self) -> usize {
         if self.size == 0 {
             return 0;
         }
@@ -169,7 +169,7 @@ impl PartitionLattice {
 
     /// The indit fraction as exact integers, `r(π) = (Σ|B|², N²)` — the indit-side counterpart of `1 − h(π)`.
     /// Same lattice point, different coordinates: at `Top` (indiscrete) `r = N²/N² = 1`, i.e. maximal
-    /// indit and `h = 0`. Delegates to [`Self::sum_block_sizes_sq`], the same count [`Self::distinction_count`] uses.
+    /// indit and `h = 0`. Delegates to [`Self::sum_block_sizes_sq`], the same count [`Self::dit_count`] uses.
     /// Returns `(numerator, denominator)` as integers, avoiding floating point. Empty → `(0, 0)`.
     pub fn repeat_ratio(&self) -> (usize, usize) {
         if self.size == 0 {
@@ -463,12 +463,12 @@ mod tests {
 
     #[test]
     fn test_partition_repeat_ratio_complements_distinction() {
-        // r(pi) = (sum |B|^2, N^2) and distinction_count = N^2 - sum |B|^2: an exact integer identity.
+        // r(pi) = (sum |B|^2, N^2) and dit_count = N^2 - sum |B|^2: an exact integer identity.
         // mixed {{0,1},{2}} -> ids [0,0,1], N=3: Σ = 2²+1² = 5, N² = 9, dit = 4.
         let p = PartitionLattice::from_ids(vec![0u32, 0, 1]);
         let (num, den) = p.repeat_ratio();
         assert_eq!((num, den), (5, 9));
-        assert_eq!(num + p.distinction_count(), den, "repeat + dit = N^2 exactly");
+        assert_eq!(num + p.dit_count(), den, "repeat + dit = N^2 exactly");
     }
 
     #[test]
@@ -559,7 +559,7 @@ mod tests {
         // Distinctions: 9 - 5 = 4.
         // Pairs: (0,2), (2,0), (1,2), (2,1).
         let p = PartitionLattice::from_ids(vec![0u32, 0, 1]);
-        assert_eq!(p.distinction_count(), 4);
+        assert_eq!(p.dit_count(), 4);
 
         let dits = p.distinctions();
         assert_eq!(dits.len(), 4);

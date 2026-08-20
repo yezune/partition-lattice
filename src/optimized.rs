@@ -51,7 +51,7 @@ pub struct FastPartition {
     blocks: Vec<BitVec<u64, Lsb0>>,
     /// Element to block mapping (for fast lookup)
     element_to_block: Vec<u32>,
-    /// Precomputed Σ|B|² for O(1) distinction_count and logical_entropy
+    /// Precomputed Σ|B|² for O(1) dit_count and logical_entropy
     sum_block_sizes_sq: u64,
 }
 
@@ -330,16 +330,16 @@ impl FastPartition {
     /// Counts distinctions: N² - Σ|B|²
     ///
     /// O(1) — uses precomputed sum of squared block sizes.
-    pub fn distinction_count(&self) -> usize {
+    pub fn dit_count(&self) -> usize {
         if self.size == 0 {
             return 0;
         }
         (self.size * self.size) - self.sum_block_sizes_sq as usize
     }
 
-    /// Alias for distinction_count (cached is now always O(1)).
+    /// Alias for dit_count (cached is now always O(1)).
     pub fn distinction_count_cached(&self) -> usize {
-        self.distinction_count()
+        self.dit_count()
     }
 
     /// Differentiate (formerly Meet): π₁ ∧ π₂
@@ -1171,7 +1171,7 @@ mod tests {
         let ref_p = PartitionLattice::from_ids(ids.clone());
         let fast_p = FastPartition::from_ids(&ids);
 
-        assert_eq!(ref_p.distinction_count(), fast_p.distinction_count());
+        assert_eq!(ref_p.dit_count(), fast_p.dit_count());
     }
 
     #[test]
@@ -1256,7 +1256,7 @@ mod tests {
 
         // Compute distinctions
         let start = Instant::now();
-        let dits = fast_p.distinction_count();
+        let dits = fast_p.dit_count();
         let dits_time = start.elapsed();
 
         println!("Large partition (n={}):", n);
@@ -1404,14 +1404,14 @@ mod tests {
     fn test_distinction_count_cached() {
         // Cached distinction count must match fresh computation
         let mut p = FastPartition::from_ids(&[0, 0, 1, 2, 2]);
-        let expected = p.distinction_count();
+        let expected = p.dit_count();
         let cached = p.distinction_count_cached();
         assert_eq!(cached, expected);
 
         // After differentiate, cache should reset and return correct value
         let p2 = FastPartition::from_ids(&[0, 1, 1, 0, 1]);
         p = p.differentiate(&p2);
-        let fresh = p.distinction_count();
+        let fresh = p.dit_count();
         let cached = p.distinction_count_cached();
         assert_eq!(cached, fresh);
     }
