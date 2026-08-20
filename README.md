@@ -108,7 +108,16 @@ keys (partition is discrete, so it determines every column)
 ```
 
 The violation count is exact, so near-misses can be ranked without float ties deciding
-which candidate wins — see [`examples/functional_dependencies.rs`](examples/functional_dependencies.rs).
+which candidate wins.
+
+Three more demos ship alongside it — `cargo run --example <name>`:
+
+| | what it shows |
+|---|---|
+| [`functional_dependencies`](examples/functional_dependencies.rs) | dependencies are the refinement order, restated |
+| [`clustering_comparison`](examples/clustering_comparison.rs) | a scalar says *how much* two clusterings differ; `coarsen` / `refine` / `destr` / `creat` say *in what way* |
+| [`dfa_minimisation`](examples/dfa_minimisation.rs) | Moore's algorithm is `refine` in a loop; the fixed point is an exact integer comparison |
+| [`graph_components`](examples/graph_components.rs) | folding edges with `coarsen` gives connected components — the join is the union-find |
 
 ## Exactness
 

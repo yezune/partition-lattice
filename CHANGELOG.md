@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+Documentation only: the README now lists all four examples rather than one. The
+examples themselves shipped in 0.3.0.
+
+
 ## 0.3.0 — breaking
 
 `Partition::distinction_count` is now **`Partition::dit_count`**.
