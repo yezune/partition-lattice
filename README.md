@@ -79,7 +79,37 @@ whose only job is to depend on this one with `default-features = false`.
 | `slow-tests` | | large exhaustive tests |
 | `df-bins` | | one-off measurement binaries; not part of the API |
 
-## Example: functional dependencies
+## Examples — four algorithms, two operations
+
+Finding functional dependencies, comparing clusterings, minimising a DFA, and finding
+connected components are four different problems with four different standard
+algorithms. All four turn out to be the same two lattice operations:
+
+| problem | usually reached for | what it is here |
+|---|---|---|
+| functional dependencies | TANE and relatives | `partition(X).refines(partition(Y))` |
+| comparing two clusterings | Rand, ARI, NMI | `coarsen` for the consensus, `destr` / `creat` for the direction |
+| DFA minimisation | Hopcroft, Moore | `refine` until `dit_count` stops growing |
+| connected components | union-find | `coarsen` folded over the edges |
+
+That is the case for the library. Not that it computes these faster, but that it is
+the structure those algorithms were reconstructing each time. Once the data is a
+partition, the parts that normally need care — fixed points, transitive closure,
+composite keys — come from the lattice rather than from you, and what is left is
+small: the logic in these examples is 9 lines for components, 21 for dependencies and
+29 for DFA minimisation, with the clustering one containing no algorithm at all, only
+calls. The rest of each file is printing and sample data.
+
+Two properties do the work throughout:
+
+- **Counts stay integers.** `dit_count` is the exact numerator of the entropy, so a
+  fixed point is `==` rather than `abs(a - b) < eps`, and near-misses rank without
+  float ties deciding the winner.
+- **The order is available, not just a number.** A similarity index answers *how much*.
+  `refine` and `coarsen` answer *what*: which distinctions two groupings agree on,
+  which one of them drew and the other erased.
+
+### The one to read first: functional dependencies
 
 A functional dependency `X -> Y` — rows agreeing on `X` agree on `Y` — is the
 refinement order, restated:
@@ -110,7 +140,9 @@ keys (partition is discrete, so it determines every column)
 The violation count is exact, so near-misses can be ranked without float ties deciding
 which candidate wins.
 
-Three more demos ship alongside it — `cargo run --example <name>`:
+### All four
+
+`cargo run --example <name>`
 
 | | what it shows |
 |---|---|
