@@ -79,6 +79,37 @@ whose only job is to depend on this one with `default-features = false`.
 | `slow-tests` | | large exhaustive tests |
 | `df-bins` | | one-off measurement binaries; not part of the API |
 
+## Example: functional dependencies
+
+A functional dependency `X -> Y` — rows agreeing on `X` agree on `Y` — is the
+refinement order, restated:
+
+```text
+X -> Y   iff   partition(X).refines(partition(Y))
+```
+
+So finding dependencies in a table needs no dependency-checking algorithm; the lattice
+already is one. Composite determinants come for free, since `partition({A, B})` is just
+`partition(A).refine(partition(B))`.
+
+```
+$ cargo run --example functional_dependencies
+
+single-column dependencies
+  holds  zip        -> city
+  holds  city       -> country
+  fails  city       -> zip         (4 rows-pairs disagree)
+
+composite determinant
+  holds  {city, population} -> country
+
+keys (partition is discrete, so it determines every column)
+  zip is a key
+```
+
+The violation count is exact, so near-misses can be ranked without float ties deciding
+which candidate wins — see [`examples/functional_dependencies.rs`](examples/functional_dependencies.rs).
+
 ## Exactness
 
 Distinction counts are integers and stay integers. `h` is the only place a division happens,

@@ -67,6 +67,22 @@ std = [
 name = "partition_lattice"
 path = "src/lib.rs"
 
+[[example]]
+name = "clustering_comparison"
+path = "examples/clustering_comparison.rs"
+
+[[example]]
+name = "dfa_minimisation"
+path = "examples/dfa_minimisation.rs"
+
+[[example]]
+name = "functional_dependencies"
+path = "examples/functional_dependencies.rs"
+
+[[example]]
+name = "graph_components"
+path = "examples/graph_components.rs"
+
 [dependencies.bincode]
 version = "1.3"
 optional = true
