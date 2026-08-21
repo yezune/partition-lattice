@@ -1,4 +1,4 @@
-//! Human-facing `Display` ladder for [`Partition`] — WP-DIT-REPR Phase 0 (Tier 1).
+//! Human-facing `Display` ladder for [`Partition`].
 //!
 //! The codebase's first `impl fmt::Display for Partition`. Replaces the
 //! derive-`Debug` `FastPartition` BitVec dump with a scale-aware, label-blind,
@@ -12,11 +12,11 @@
 //! - **Rung V** (`n_set < N ≤ n_vec`): canonical id-vector `[0,0,1,1,1]` — faithful.
 //! - **Rung C** (`N > n_vec`): lossy `⟨…⟩` count-summary (block-size multiset).
 //!
-//! Correction sealed here (WP-DIT-REPR RC2): the count-summary `h` is
+//! Correction sealed here: the count-summary `h` is
 //! `logical_entropy() = 1 − Σ|B|²/N²` (rendered as the exact rational
 //! `dit_count()/N²`), **not** the edge-density `|dit|/C(N,2)`.
 //!
-//! Pair convention (WP-DIT-REPR RC1): the human surface reports `|dit|` as
+//! Pair convention: the human surface reports `|dit|` as
 //! **unordered** `C(N,2)`; the engine keeps ordered-N². This is a boundary.
 
 use crate::Partition;
@@ -157,7 +157,7 @@ fn dit_intersection_ordered(a: &Partition, b: &Partition) -> usize {
 }
 
 impl Partition {
-    /// Scale-aware human rendering (WP-DIT-REPR Phase 0). See module docs.
+    /// Scale-aware human rendering. See module docs.
     pub fn render(&self, cfg: &DisplayConfig) -> String {
         let n = self.size();
         if n == 0 {
@@ -275,7 +275,7 @@ impl Partition {
     }
 
     /// **Bundle-grid card** (single π) — the complete-multipartite structure view
-    /// (WP-DIT-REPR Phase 2). `dit(π) = ⋃_{i<j} Bᵢ⊗Bⱼ` rendered as a K×K grid: bracketed
+    /// `dit(π) = ⋃_{i<j} Bᵢ⊗Bⱼ` rendered as a K×K grid: bracketed
     /// diagonal `[C(sᵢ,2)]` = indit (in-block non-dits), off-diagonal `sᵢ·sⱼ` = the dit
     /// bundle. Footer: `Σupper = |dit|` (unordered), invariant `Σupper + Σdiag = C(N,2)`,
     /// `h`. Pure DISPLAY (block-size only; delegates to `to_blocks`/`dit_count`).
@@ -343,7 +343,7 @@ impl Partition {
     }
 
     /// **Refinement view** (pair) — renders the Meet=∪ (exact) / Join⊆∩ (gap) asymmetry
-    /// (WP-DIT-REPR Phase 2). `a∧b` (`differentiate`) with `dit = dit(a) ⊔ dit(b)` exact;
+    /// `a∧b` (`differentiate`) with `dit = dit(a) ⊔ dit(b)` exact;
     /// `a∨b` (`integrate`, **EXACT — measurement-only**, learning loops use ShallowJoin)
     /// with `dit ⊆ dit(a)∩dit(b)` and the transitive-closure gap. Pure DISPLAY.
     pub fn refine_view(&self, other: &Self) -> String {
@@ -378,11 +378,11 @@ impl Partition {
         join(&lines, "\n")
     }
 
-    /// **Contingency card** (pair) — the `|Bᵢ∩Cⱼ|` grid with marginals (WP-DIT-REPR
+    /// **Contingency card** (pair) — the `|Bᵢ∩Cⱼ|` grid with marginals (
     /// Phase 2); the pairwise structure substrate for d_⊕/D_L. Meet = nonempty cells,
     /// Join = components; the Meet/Join/gap summary is appended. Pure DISPLAY (transient
     /// boundary, not persisted). NOTE: this is the A-region `{|B∩C|}` substrate — it does
-    /// NOT use the ln-based ARI/NMI in `l-vm-pla::metrics` (D-region).
+    /// NOT use a log-based ARI/NMI: those presuppose a background distribution.
     pub fn contingency_card(&self, other: &Self) -> String {
         let n = self.size();
         if n != other.size() {
@@ -460,7 +460,7 @@ mod tests {
         Partition::from_ids(ids.to_vec())
     }
 
-    // ---- REF partitions (WP-DIT-REPR) ----
+    // ---- REF partitions ----
     // REF-A: {{0,1},{2,3,4}}          REF-B: {{0,3,6,9},{1,4,7,10},{2,5,8,11}}
     // REF-C: π1={{0,1,2},{3,4,5}}, π2={{0,3},{1,4},{2,5}}
 

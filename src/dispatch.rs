@@ -1,6 +1,6 @@
 //! Distributed dispatch hook — zero-overhead callback registration.
 //!
-//! Allows external crates (e.g., `l-vm-distributed`) to register handlers
+//! Allows an external crate to register handlers
 //! that intercept `Partition::logical_entropy()` and `fused_entropy_differentiate()`
 //! for large partitions, routing them to distributed MapReduce execution.
 //!
@@ -13,8 +13,8 @@
 //!
 //! # Avoiding Circular Dependencies
 //!
-//! `l-vm-logic` defines the hook points; `l-vm-distributed` implements them.
-//! No dependency from `l-vm-logic` → `l-vm-distributed` is needed.
+//! This crate defines the hook points; the distributed runtime implements them.
+//! No dependency in that direction is needed.
 //!
 //! # Coexistence with AccelPolicy
 //!
@@ -62,7 +62,7 @@ static MEET_ENTROPY_HOOK: OnceLock<RefineEntropyHandler> = OnceLock::new();
 
 /// Register a distributed entropy handler.
 ///
-/// Called once at process startup by `l-vm-distributed::auto_init_from_env()`.
+/// Called once at process startup by the distributed runtime.
 /// Returns `Err` if a handler was already registered.
 pub fn register_entropy_handler(f: EntropyHandler) -> Result<(), EntropyHandler> {
     ENTROPY_HOOK.set(f)
@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_dispatch_no_handler_returns_none() {
-        // OnceLock is per-process, and no handler is set in l-vm-logic tests.
+        // OnceLock is per-process, and no handler is set in this crate's tests.
         // This verifies the default no-op path.
         let pi = Partition::from_ids(vec![0, 0, 1, 1]);
         assert!(try_distributed_entropy(&pi).is_none());

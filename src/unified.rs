@@ -724,8 +724,18 @@ impl Partition {
         }
 
         // Target block count: ceil((1 - alpha) * b_meet + alpha * b_join).
+        //
+        // The bounds are ordered rather than assumed. `meet` is documented as the finer
+        // side, but a caller can pass the two the other way round, and `clamp(lo, hi)`
+        // panics when `lo > hi` -- a library that dies on a caller's mistake takes the
+        // prover embedding it down with it, from one line of input. Ordering them keeps
+        // this identical whenever the precondition holds, and gives a defined result
+        // when it does not: this function only ever coarsens away from `meet`, so if
+        // `join` is the finer of the two there is nothing to coarsen and `meet` is
+        // returned unchanged by the guard below.
         let target_f = (1.0 - alpha) * b_meet as f64 + alpha * b_join as f64;
-        let target = (target_f.ceil() as usize).clamp(b_join, b_meet);
+        let (lo, hi) = (b_join.min(b_meet), b_join.max(b_meet));
+        let target = (target_f.ceil() as usize).clamp(lo, hi);
 
         if target >= b_meet {
             return meet.clone();
@@ -1042,7 +1052,7 @@ impl Partition {
     /// the nearest stored partition?"). Empty pool ⟹ `f64::INFINITY` (nothing to be near).
     ///
     /// The **single home of the `min d_⊕ over a pool` reduction** — the single source of truth: the
-    /// recall-layer novelty force `l_vm_pla::tlw::distinction_gain` and the dia surprise / MIU /
+    /// recall-layer novelty force and the surprise / MIU /
     /// aligner sites all delegate here instead of re-folding the min, applying their own
     /// empty-default (1.0 / 2.0) and size-compat filter at the *callsite* (those are domain
     /// boundaries, not the force). Items are `&Partition`, so store-backed callers can pass
@@ -2218,10 +2228,9 @@ pub fn rand_agreement_ids(a: &[u32], b: &[u32]) -> f64 {
 /// labels carry no information. This is the standard key for membership,
 /// de-dup, cycle detection, and equivalence-class numbering over partition traces.
 ///
-/// SSOT (2026-07-29). Four byte-identical private copies previously lived in
-/// `l-vm-eigenform`, `l-vm-symbolism`, `l-vm-mm0` and `l-vm-tars`; the symbolism copy
-/// carried a note about avoiding a cross-crate dependency cycle, which this placement resolves: every
-/// crate already depends on `partition-lattice`, so no cycle is possible. Semantics are
+/// SSOT. Four byte-identical private copies previously lived in downstream crates; one of
+/// them carried a note about avoiding a cross-crate dependency cycle, which this placement
+/// resolves: every one of them already depends on this crate, so no cycle is possible. Semantics are
 /// pinned against the legacy copies by
 /// `unified_tests::test_canonicalize_ids_matches_legacy_copy_semantics`.
 ///

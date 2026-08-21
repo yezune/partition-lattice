@@ -255,6 +255,7 @@ pub mod registration;
 #[cfg(feature = "std")]
 pub mod orbit;
 pub mod endomap;
+pub mod map;
 pub mod pure_pcc;
 pub mod simplicial;
 #[cfg(feature = "std")]

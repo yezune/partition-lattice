@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.3
+
+**`interpolate_with` no longer panics on swapped arguments.** The function documents
+that its first argument is the finer partition, but a caller passing the two the other
+way round hit `clamp(lo, hi)` with `lo > hi` and the process died. The bounds are now
+ordered: identical behaviour whenever the precondition holds, and a defined result when
+it does not -- the function only ever coarsens away from the first argument, so if the
+second is the finer of the two there is nothing to coarsen and the first comes back
+unchanged. Found when a conformance corpus first exercised `interpolate`.
+
+**Documentation: references a reader cannot follow are gone.** Comments pointed at
+private crate names, internal whitepaper identifiers and repository document paths --
+21 lines that meant nothing outside the repository they came from. Each is replaced by
+the fact it was standing in for, not deleted: a private crate name became the role that
+crate plays ("the distributed runtime"), and a pointer to a private metrics module became
+the reason it was being warned against ("those presuppose a background distribution").
+
+This was overdue. When 0.3.0 shipped, "no Hangul in the published files" was taken as
+evidence that the published surface was clean. It was not the same question, and 21
+English lines pointing into a private repository went out.
+
+No API change.
+
 ## 0.3.2
 
 Documentation only. The README now leads with what the examples are for: finding
@@ -87,7 +110,7 @@ That is also why the *convention* was left alone: switching it would buy conveni
 when reading papers and cost every existing caller a silent reversal. The naming was
 what needed fixing, not the convention.
 
-Not touched: `l-vm-gpu`'s Metal kernel names (`fused_meet_count` and friends) are
+Not touched: the GPU crate's Metal kernel names (`fused_meet_count` and friends) are
 internal to that crate and are not part of this package's surface.
 
 

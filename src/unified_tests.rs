@@ -2430,8 +2430,7 @@ fn test_canonicalize_ids_empty_and_singleton() {
     assert_eq!(canonicalize_ids(&[42]), vec![0]);
 }
 
-/// Pins the exact semantics the four pre-existing copies (l-vm-eigenform,
-/// l-vm-symbolism, l-vm-mm0, l-vm-tars) implemented, so delegation is bit-exact.
+/// Pins the exact semantics the four pre-existing copies implemented, so delegation is bit-exact.
 #[test]
 fn test_canonicalize_ids_matches_legacy_copy_semantics() {
     fn legacy(ids: &[u32]) -> Vec<u32> {
@@ -2458,4 +2457,40 @@ fn test_canonicalize_ids_matches_legacy_copy_semantics() {
     ] {
         assert_eq!(canonicalize_ids(&case), legacy(&case), "case {case:?}");
     }
+}
+
+/// Swapped arguments must not panic.
+///
+/// `interpolate_with(meet, join, alpha)` documents that the first argument is the finer
+/// side, but violating that made `clamp(b_join, b_meet)` panic on `min > max`. A library
+/// that dies on a caller's mistake takes the prover embedding it down too -- one line of
+/// input ends the process. Found when a conformance corpus first covered `interpolate`.
+///
+/// Defined result: this function only ever coarsens away from `meet`. If `join` is the
+/// finer of the two there is nothing to coarsen, so the first argument comes back
+/// unchanged.
+#[test]
+fn test_partition_interpolate_swapped_arguments_do_not_panic() {
+    let coarse = Partition::from_ids(vec![0, 0, 1, 1]); // 2 blocks
+    let fine = Partition::from_ids(vec![0, 1, 2, 3]); // 4 blocks
+
+    // Precondition violated (the first argument is the coarser one). Defined, not fatal.
+    for &alpha in &[0.0, 0.25, 0.5, 0.75, 1.0] {
+        let out = Partition::interpolate_with(&coarse, &fine, alpha);
+        assert_eq!(
+            out.get_ids(),
+            coarse.get_ids(),
+            "swapped arguments at alpha={alpha}: nothing to coarsen, first argument returned"
+        );
+    }
+
+    // The documented direction is unchanged (not a regression).
+    assert_eq!(
+        Partition::interpolate_with(&fine, &coarse, 0.0).get_ids(),
+        fine.get_ids()
+    );
+    assert_eq!(
+        Partition::interpolate_with(&fine, &coarse, 1.0).get_ids(),
+        coarse.get_ids()
+    );
 }

@@ -33,7 +33,7 @@ use alloc::vec::Vec;
 
 /// Pluggable acceleration backend for partition operations.
 ///
-/// CPU (default) and GPU (l-vm-gpu) implementations available.
+/// CPU (default) and GPU implementations available.
 /// All inputs are `&[u32]` block IDs from `Partition::get_ids()`.
 /// All scalar outputs are `f64` for precision consistency.
 pub trait AccelerationBackend: Send + Sync {
@@ -195,7 +195,7 @@ pub enum AccelPolicy {
     #[default]
     Cpu,
     /// GPU-accelerated computation (Metal/CUDA). Uses f32 internally, returns f64.
-    /// The boxed backend is typically `l_vm_gpu::UnifiedGpuBackend`.
+    /// The boxed backend is typically a GPU backend supplied by the embedding crate.
     Gpu(Box<dyn AccelerationBackend>),
     /// Distributed MapReduce computation. Reserved for Phase 1.
     /// Will hold a `DistributedBackend` implementing `AccelerationBackend`.
