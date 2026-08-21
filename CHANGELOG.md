@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.3.4
+
+**The indication tier gets a home: `subset`.** Partitions are the categorical dual of
+subsets, and this crate has always computed in the dual tier without naming it --
+`logical_entropy` is `|dit| / N^2`, `ditset_xor_distance` is the cardinality of a
+symmetric difference, `destr` and `creat` are set differences. All of them counted
+subsets of `U x U` that were never constructed. Now they can be.
+
+`SubsetU` is a subset of a finite universe with the Boolean operations on it -- union,
+intersection, complement, symmetric difference, inclusion -- plus `all_subsets` for
+exhaustive work. Nothing existing changed; this is purely an addition.
+
+**And the three maps that connect the two tiers.** Neither lattice embeds in the other
+(a partition lattice is non-distributive from `|U| >= 3`, and a sublattice of a
+distributive lattice is distributive), so all that connects them are maps:
+
+| | |
+|---|---|
+| `dit`, `indit` | partition to relation. Carries the common refinement to union *exactly*, and loses the common coarsening |
+| `int_` | the right adjoint -- how the lost operation is recovered, and therefore what "subsets only" has to import |
+| `cross`, `cross_image` | Spencer-Brown's cross `K(S) = {S, complement S}`. Two-to-one, and what it folds away is which side was marked |
+
+`dit` is built by direct pair enumeration rather than through the lattice operations.
+That is slower and deliberate: derived from `refine`, the identity
+`dit(refine(a,b)) = dit(a) union dit(b)` would hold because both sides share code, and a
+check of it would be a tautology rather than a fact. The two routes are kept separate,
+and a test pins the pair-enumeration result against the long-standing cardinality one.
+
+`int_` finds connected components as a Join fold over edge partitions, not as a
+hand-written union-find -- the components *are* the transitive closure and Join *is*
+that closure.
+
+Compiles under `no_std` as before.
+
 ## 0.3.3
 
 **`interpolate_with` no longer panics on swapped arguments.** The function documents

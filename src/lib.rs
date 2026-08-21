@@ -260,6 +260,7 @@ pub mod pure_pcc;
 pub mod simplicial;
 #[cfg(feature = "std")]
 pub mod sparse;
+pub mod subset;
 #[cfg(feature = "std")]
 pub mod streaming;
 #[cfg(feature = "research")]
