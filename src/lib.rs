@@ -285,6 +285,8 @@ pub use partition::{get_logical_ops, reset_logical_ops};
 pub use pure_pcc::{antichain_select, new_distinction_count, pure_pcc_step, PureStep};
 pub use unified::{DispatchAdvice, PartitionOp};
 pub use unified::{Partition, PartitionOps};
+#[cfg(feature = "std")]
+pub use unified::pick_factor_for_universe;
 
 /// Block ID type for partition element-to-block mappings.
 /// u32 provides 4.3B range (max practical block count = 512, MAX_ELEMENTWISE_BLOCKS).

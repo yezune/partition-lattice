@@ -51,11 +51,49 @@ use serde::{Deserialize, Serialize};
 /// Represents a partition of a set of N elements.
 /// Implemented using a vector of block IDs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "LatticeWire", into = "LatticeWire")]
 pub struct PartitionLattice {
     /// Maps element index -> Block ID
     /// elements are 0..size
     ids: Vec<u32>,
     size: usize,
+    /// Number of blocks. `ids` is normalised to `0..k-1` at construction and the
+    /// struct has no `&mut self` method, so this is fixed once and cannot go stale.
+    ///
+    /// Cached because `FastPartition` answers `block_count` in O(1) from
+    /// `blocks.len()` while scanning `ids` here is O(n). `Partition::diagnose`
+    /// calls `block_count` on both operands, so an uncached Lattice turns the
+    /// O(1) dispatch contract (PCS-A5) into an O(n) one — measured at 237µs per
+    /// call at N=1e6 against a sub-nanosecond Fast.
+    num_blocks: usize,
+    /// `Σ|B|²`, the quantity `logical_entropy`, `dit_count` and `repeat_ratio` all
+    /// reduce to. Same reasoning as `num_blocks`; measured at 10.3ms per call at
+    /// N=1e6 before caching.
+    sum_block_sizes_sq: usize,
+}
+
+/// The serialized shape of a `PartitionLattice`, which is what 0.3.2 and earlier
+/// wrote: `ids` and `size` only. The cached counts are derived, so they stay off
+/// the wire — a payload written before the cache existed still loads, and a payload
+/// written now still loads in a version that predates it.
+#[derive(Serialize, Deserialize)]
+struct LatticeWire {
+    ids: Vec<u32>,
+    size: usize,
+}
+
+impl From<LatticeWire> for PartitionLattice {
+    fn from(w: LatticeWire) -> Self {
+        // Recompute rather than trust the payload: the counts are a function of `ids`.
+        let (num_blocks, sum_block_sizes_sq) = Self::counts_of(&w.ids);
+        Self { ids: w.ids, size: w.size, num_blocks, sum_block_sizes_sq }
+    }
+}
+
+impl From<PartitionLattice> for LatticeWire {
+    fn from(p: PartitionLattice) -> Self {
+        Self { ids: p.ids, size: p.size }
+    }
 }
 
 impl PartitionLattice {
@@ -65,6 +103,9 @@ impl PartitionLattice {
         Self {
             ids: (0..size).map(|i| i as u32).collect(),
             size,
+            // Discrete: every element is its own block, so Σ|B|² = Σ1 = size.
+            num_blocks: size,
+            sum_block_sizes_sq: size,
         }
     }
 
@@ -77,19 +118,46 @@ impl PartitionLattice {
         let mut normalized_ids = Vec::with_capacity(size);
         let mut next_id: u32 = 0;
 
+        let mut block_sizes: Vec<usize> = Vec::new();
         for &id in &ids {
             let new_id = *map.entry(id).or_insert_with(|| {
                 let i = next_id;
                 next_id += 1;
                 i
             });
+            // The normalising pass already discovers the block count; counting the
+            // sizes alongside it costs one increment per element and saves an O(n)
+            // scan on every later `logical_entropy` / `dit_count` call.
+            let idx = new_id as usize;
+            if idx == block_sizes.len() {
+                block_sizes.push(0);
+            }
+            block_sizes[idx] += 1;
             normalized_ids.push(new_id);
         }
 
         Self {
             ids: normalized_ids,
             size,
+            num_blocks: next_id as usize,
+            sum_block_sizes_sq: block_sizes.iter().map(|&c| c * c).sum(),
         }
+    }
+
+    /// `(block count, Σ|B|²)` for an id vector, by one scan. Used where a
+    /// `PartitionLattice` is built from ids that are already normalised, and on
+    /// deserialization.
+    fn counts_of(ids: &[u32]) -> (usize, usize) {
+        let mut sizes: Vec<usize> = Vec::new();
+        for &id in ids {
+            let idx = id as usize;
+            if idx >= sizes.len() {
+                sizes.resize(idx + 1, 0);
+            }
+            sizes[idx] += 1;
+        }
+        let k = sizes.iter().filter(|&&c| c > 0).count();
+        (k, sizes.iter().map(|&c| c * c).sum())
     }
 
     /// Returns the number of elements (universe size).
@@ -104,10 +172,10 @@ impl PartitionLattice {
 
     /// Returns the number of blocks in the partition.
     pub fn block_count(&self) -> usize {
-        if self.size == 0 {
-            return 0;
-        }
-        (*self.ids.iter().max().unwrap_or(&0) + 1) as usize
+        // O(1): `ids` is normalised to `0..k-1` at construction, so the count is
+        // fixed there. Previously this scanned for the maximum id, which made
+        // `Partition::diagnose` O(n) — see `num_blocks`.
+        self.num_blocks
     }
 
     /// Returns the blocks of the partition as a vector of vectors of element indices.
@@ -150,11 +218,9 @@ impl PartitionLattice {
     /// [`Self::dit_count`] and [`Self::repeat_ratio`] both delegate here.
     /// Block sizes only — label-independent, and integer, so no floating point is involved.
     fn sum_block_sizes_sq(&self) -> usize {
-        let mut counts = HashMap::new();
-        for &id in &self.ids {
-            *counts.entry(id).or_insert(0usize) += 1;
-        }
-        counts.values().map(|&c| c * c).sum()
+        // O(1): counted during construction. Integer throughout, so there is no
+        // floating-point accumulation order to worry about.
+        self.sum_block_sizes_sq
     }
 
     /// Returns the number of distinctions (dits).
@@ -339,6 +405,7 @@ impl PartitionLattice {
         let mut new_ids: Vec<u32> = Vec::with_capacity(self.size);
         let mut next_id: u32 = 0;
 
+        let mut block_sizes: Vec<usize> = Vec::new();
         for i in 0..self.size {
             let key = (self.ids[i], other.ids[i]);
             let new_id = *map.entry(key).or_insert_with(|| {
@@ -346,6 +413,11 @@ impl PartitionLattice {
                 next_id += 1;
                 id
             });
+            let idx = new_id as usize;
+            if idx == block_sizes.len() {
+                block_sizes.push(0);
+            }
+            block_sizes[idx] += 1;
             new_ids.push(new_id);
         }
         inc_logical_ops(self.size as u64);
@@ -353,6 +425,8 @@ impl PartitionLattice {
         Self {
             ids: new_ids,
             size: self.size,
+            num_blocks: next_id as usize,
+            sum_block_sizes_sq: block_sizes.iter().map(|&c| c * c).sum(),
         }
     }
 
@@ -439,6 +513,130 @@ impl PartitionLattice {
         let sum_sq_int: usize = counts.values().map(|&c| c * c).sum();
         let n = self.size as f64;
         1.0 - (sum_sq_int as f64) / (n * n)
+    }
+}
+
+#[cfg(test)]
+mod cached_metadata_tests {
+    use super::*;
+
+    /// Every construction path must leave the cached block count agreeing with a
+    /// fresh scan. `PartitionLattice` has no `&mut self` method, so a cache set at
+    /// construction can never go stale — but it can be set wrong, and a wrong cache
+    /// is a silently wrong answer rather than a slow one.
+    fn scan_block_count(p: &PartitionLattice) -> usize {
+        if p.size() == 0 {
+            return 0;
+        }
+        let mut seen = std::collections::HashSet::new();
+        for &id in p.get_ids() {
+            seen.insert(id);
+        }
+        seen.len()
+    }
+
+    fn scan_sum_sq(p: &PartitionLattice) -> usize {
+        let mut counts = HashMap::new();
+        for &id in p.get_ids() {
+            *counts.entry(id).or_insert(0usize) += 1;
+        }
+        counts.values().map(|&c| c * c).sum()
+    }
+
+    fn check(p: &PartitionLattice, path: &str) {
+        assert_eq!(p.block_count(), scan_block_count(p), "block_count wrong after {path}");
+        assert_eq!(
+            p.dit_count(),
+            p.size() * p.size() - scan_sum_sq(p),
+            "dit_count wrong after {path}"
+        );
+    }
+
+    #[test]
+    fn cache_agrees_with_a_fresh_scan_on_every_construction_path() {
+        check(&PartitionLattice::new(64), "new");
+        check(&PartitionLattice::from_ids(vec![0; 64]), "from_ids indiscrete");
+        check(&PartitionLattice::from_ids((0..64u32).collect()), "from_ids discrete");
+        // Non-canonical labels: from_ids renumbers, so the count is the distinct count,
+        // not max+1. This is the case that makes max(ids)+1 the wrong quantity.
+        check(&PartitionLattice::from_ids(vec![7, 7, 900, 900, 12, 7]), "from_ids sparse labels");
+
+        let a = PartitionLattice::from_ids((0..128u32).map(|i| i % 5).collect());
+        let b = PartitionLattice::from_ids((0..128u32).map(|i| i % 7).collect());
+        check(&a.differentiate(&b), "differentiate");
+        check(&a.integrate(&b), "integrate");
+        check(&a.differentiate(&a), "differentiate with self");
+        check(&a.integrate(&a), "integrate with self");
+    }
+
+    #[test]
+    fn cache_agrees_after_conversion_from_other_representations() {
+        let ids: Vec<u32> = (0..1000u32).map(|i| i % 37).collect();
+        #[cfg(feature = "std")]
+        {
+            let fast = crate::optimized::FastPartition::from_ids(&ids);
+            check(&PartitionLattice::from(&fast), "From<&FastPartition>");
+            let sparse = crate::sparse::SparsePartition::from_ids(&ids);
+            check(&PartitionLattice::from(&sparse), "From<&SparsePartition>");
+        }
+    }
+
+    /// The reason for the cache. `block_count` and `logical_entropy` are O(n) scans
+    /// today; `FastPartition` answers both in O(1) from stored fields
+    /// (`optimized.rs:297` and its `sum_block_sizes_sq`). Routing more inputs to
+    /// Lattice therefore degrades `diagnose()` from O(1) to O(n) (PCS-A5).
+    ///
+    /// Timing is a poor test, so this asserts the *shape* instead: the per-call cost
+    /// must not grow with n. Measured before the cache: 2.5µs at n=1e4 rising to
+    /// 237µs at n=1e6, i.e. linear. The 8x margin below is far outside noise.
+    #[test]
+    fn block_count_and_entropy_do_not_scale_with_universe_size() {
+        use std::time::Instant;
+        let small = PartitionLattice::from_ids((0..10_000u32).map(|i| i % 1_000).collect());
+        let large = PartitionLattice::from_ids((0..1_000_000u32).map(|i| i % 100_000).collect());
+
+        let time = |p: &PartitionLattice| -> f64 {
+            for _ in 0..3 {
+                std::hint::black_box(p.block_count());
+                std::hint::black_box(p.logical_entropy());
+            }
+            let t = Instant::now();
+            for _ in 0..20 {
+                std::hint::black_box(p.block_count());
+                std::hint::black_box(p.logical_entropy());
+            }
+            t.elapsed().as_secs_f64()
+        };
+        let (ts, tl) = (time(&small), time(&large));
+        // 100x the universe must not cost anywhere near 100x per call.
+        assert!(
+            tl < ts * 8.0 + 1e-6,
+            "per-call cost scales with n: {:.1}us at n=1e4 vs {:.1}us at n=1e6 \
+             (ratio {:.1}x) — block_count/logical_entropy are still scanning",
+            ts * 1e6,
+            tl * 1e6,
+            tl / ts.max(1e-12)
+        );
+    }
+
+    /// The cache must not change the serialized form: data written by 0.3.2 has to
+    /// load, and data written now has to load in 0.3.2.
+    #[test]
+    fn serialized_form_is_unchanged_by_the_cache() {
+        let p = PartitionLattice::from_ids(vec![3, 3, 1, 0, 1, 3]);
+        let json = serde_json::to_string(&p).expect("serialize");
+        assert_eq!(
+            json, r#"{"ids":[0,0,1,2,1,0],"size":6}"#,
+            "the wire format gained or lost a field"
+        );
+        let back: PartitionLattice = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, p);
+        check(&back, "round-trip");
+        // A payload written before the cache existed must still load correctly.
+        let legacy: PartitionLattice =
+            serde_json::from_str(r#"{"ids":[0,0,1,2,1,0],"size":6}"#).expect("legacy load");
+        check(&legacy, "legacy payload");
+        assert_eq!(legacy.block_count(), 3);
     }
 }
 

@@ -144,19 +144,23 @@ fn test_partition_auto_select_large() {
     );
 }
 
-/// Fourth step of the `from_ids` routing chain: automatic conversion from the `Fast`
-/// fallback into `FactorizedFast`, guarded by
-/// `ids.len() >= MIN_UNIVERSE_FOR_FACTORIZATION` and factorized memory below fast memory.
-/// Non-cyclic ids with a low block count and `N >= 1024` route to `FactorizedFast`.
+/// This input used to route to `FactorizedFast` — the fourth step of the chain,
+/// which converted whenever the factorized form looked smaller than `n * 4` bytes.
+/// That conversion was withdrawn (see `Partition::from_ids`), so a low-block-count
+/// non-cyclic input now keeps the `Fast` representation.
+///
+/// The case is kept rather than deleted: where these inputs land is exactly what
+/// changed, so it is worth a guard.
 #[test]
-fn test_partition_auto_select_factorized_fast_routes_low_block_count() {
-    // N = 4096 with 4 distinct non-cyclic blocks routes to FactorizedFast.
+fn test_low_block_count_input_keeps_fast_after_factorized_withdrawal() {
+    // N = 4096 with 5 distinct non-cyclic blocks. Fast's bitvectors here are
+    // 5 * 64 * 8 = 2560 bytes, far below the Lattice fallback budget, so Fast it is.
     let mut ids: Vec<u32> = (0..4096).map(|i| (i % 4) as u32).collect();
     ids[17] = 99; // break cyclicity
     let p = Partition::from_ids(ids);
     assert!(
-        matches!(p, Partition::FactorizedFast(_)),
-        "Large non-cyclic low-block-count partition (N=4096, K=5) should route to FactorizedFast (got {:?})",
+        p.is_fast(),
+        "expected Fast after the FactorizedFast auto-conversion was withdrawn (got {:?})",
         std::mem::discriminant(&p)
     );
 }
@@ -2459,6 +2463,243 @@ fn test_canonicalize_ids_matches_legacy_copy_semantics() {
     }
 }
 
+
+// ── Lattice fallback: bounding a single operand's footprint ──────────────────
+//
+// `from_ids` used to have no way to return `Lattice` for a universe of 128 or more,
+// so a large block count forced `FastPartition` and its `K * ceil(n/64) * 8` bytes
+// of bitvectors. Measured consequence on a 276-config grid: worst peak RSS 6.79 GB
+// (M4) and 23.52 GB (Ryzen), with six configurations killed by the OOM killer on
+// each machine.
+
+/// The predicate must count distinct blocks, not the largest label. This is the
+/// difference that made the earlier `max(ids) + 1` guard overstate the footprint by
+/// up to 990x and demote partitions that were cheap to represent.
+#[test]
+fn test_bitvec_budget_counts_distinct_blocks_not_max_label() {
+    // A handful of blocks wearing large labels. Fast would allocate one bitvector
+    // per block, not one per label value.
+    //
+    // The pattern is deliberately aperiodic: `i % 3` would be detected as cyclic and
+    // routed to `Cyclic` before this arm is ever consulted, which is correct
+    // behaviour but would not exercise the predicate. An earlier draft of this test
+    // asserted `Fast` on a periodic input and failed for exactly that reason.
+    // An explicit LCG rather than a function of `i % m`: any such function has a
+    // period the cyclic detector would find first. A previous draft used
+    // `i * 2_654_435_761 % 5`, whose multiplier is 1 mod 5, so it was simply `i % 5`
+    // and was routed to `Cyclic` — correctly, but without exercising this predicate.
+    let sparse_labels: Vec<u32> = {
+        let mut state: u64 = 0x2545_F491_4F6C_DD1D;
+        (0..100_000)
+            .map(|_| {
+                state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                ((state >> 33) % 5) as u32 * 1_000_000
+            })
+            .collect()
+    };
+    assert!(
+        !Partition::exceeds_bitvec_budget(&sparse_labels),
+        "a 5-block partition was judged by its labels, not its blocks"
+    );
+    assert!(
+        matches!(Partition::from_ids(sparse_labels), Partition::Fast(_)),
+        "large labels over few blocks were demoted"
+    );
+}
+
+/// Above the budget the input goes to Lattice; comfortably below it stays on Fast.
+#[test]
+fn test_from_ids_falls_back_to_lattice_only_above_the_budget() {
+    // n=100_000 => ceil(n/64)*8 = 12_504 bytes per block, so the 1 GiB budget is
+    // crossed at roughly 85_800 blocks.
+    let over: Vec<u32> = (0..100_000u32).map(|i| i % 90_000).collect();
+    assert!(Partition::exceeds_bitvec_budget(&over));
+    assert!(
+        matches!(Partition::from_ids(over), Partition::Lattice(_)),
+        "an operand needing more than the budget in bitvectors stayed on Fast"
+    );
+
+    let under: Vec<u32> = (0..100_000u32).map(|i| i % 1_000).collect();
+    assert!(!Partition::exceeds_bitvec_budget(&under));
+    assert!(matches!(Partition::from_ids(under), Partition::Fast(_)));
+}
+
+/// The arm sits immediately before the Fast fallback, so the compressed backends —
+/// all of which are far more compact than Lattice — keep first claim. Placing it any
+/// earlier would raise memory rather than bound it: measured 288x worse on the
+/// cyclic inputs this repo's TARS sensor path produces.
+#[test]
+fn test_lattice_fallback_does_not_take_inputs_from_compressed_backends() {
+    let n = 100_000usize;
+    // Cyclic with a huge label range: over budget by label count, but cyclic wins.
+    let cyclic: Vec<u32> = (0..n).map(|i| ((i % 4) as u32) * 1_000_000).collect();
+    assert!(matches!(Partition::from_ids(cyclic), Partition::Cyclic(_)));
+
+    let wide: Vec<u32> = (0..n).map(|i| ((i % 12) as u32) * 1_000_000).collect();
+    assert!(matches!(Partition::from_ids(wide), Partition::WideCyclic(_)));
+}
+
+/// Whatever representation is chosen, the partition must be the same one. Compared
+/// by canonical form, since two representations may label the same blocks differently.
+#[test]
+fn test_lattice_fallback_preserves_the_partition() {
+    fn canon(p: &Partition) -> Vec<u32> {
+        let mut map = std::collections::HashMap::new();
+        let mut next = 0u32;
+        p.get_ids()
+            .iter()
+            .map(|&x| {
+                *map.entry(x).or_insert_with(|| {
+                    let v = next;
+                    next += 1;
+                    v
+                })
+            })
+            .collect()
+    }
+    let ids: Vec<u32> = (0..100_000u32).map(|i| i % 90_000).collect();
+    let routed = Partition::from_ids(ids.clone());
+    let forced_lattice = Partition::from_ids_lattice(ids.clone());
+    assert!(matches!(routed, Partition::Lattice(_)));
+    assert_eq!(canon(&routed), canon(&forced_lattice));
+    assert_eq!(routed.block_count(), forced_lattice.block_count());
+    assert_eq!(routed.dit_count(), forced_lattice.dit_count());
+}
+
+/// Deciding must not itself allocate what it is trying to avoid: the counter stops
+/// as soon as the budget is known to be exceeded.
+#[test]
+fn test_budget_decision_is_cheap_on_a_pathological_input() {
+    use std::time::Instant;
+    let ids: Vec<u32> = (0..1_000_000u32).collect(); // every element its own block
+    let t = Instant::now();
+    assert!(Partition::exceeds_bitvec_budget(&ids));
+    let decide = t.elapsed();
+    assert!(
+        decide.as_millis() < 100,
+        "deciding took {decide:?} — the early exit is not working"
+    );
+}
+
+
+/// A Join of two `Lattice` operands must not be detoured through `Sparse`.
+///
+/// `integrate_exact` routes to Sparse unless both operands are `Fast`
+/// (`unified.rs`, the `should_use_sparse_coarsen` guard). That guard exists to stop
+/// a *result* `FastPartition` from allocating more than 256 MB of block bitvectors —
+/// its own doc comment says so. `PartitionLattice::integrate` returns a
+/// `PartitionLattice`, which has no bitvectors at all, so the event the guard
+/// prevents cannot occur on this path.
+///
+/// Leaving it unexempted is not merely slower than the Fast route, it is slower than
+/// using Sparse directly, because `to_sparse()` is pure overhead on top. Measured at
+/// n=1e6, K=1e5: Fast 20.2ms, Lattice-exempt 21.3ms, Lattice-via-guard 327.7ms,
+/// Sparse-direct 94.6ms. The detour cost 16.9x, which showed up in the dispatch grid
+/// as a Join regret of 1.00 -> 16.32 once `from_ids` began returning Lattice here.
+#[test]
+fn test_join_of_two_lattices_stays_on_the_lattice_path() {
+    // Large enough that `should_use_sparse_coarsen` fires: max(K)*ceil(n/64)*8 > 256MB.
+    let n = 200_000usize;
+    let a: Vec<u32> = (0..n as u32).map(|i| i % 60_000).collect();
+    let b: Vec<u32> = (0..n as u32).map(|i| i % 50_000).collect();
+    let pa = Partition::from_ids_lattice(a);
+    let pb = Partition::from_ids_lattice(b);
+    assert!(
+        pa.should_use_sparse_coarsen(&pb),
+        "test input no longer trips the guard — pick larger K"
+    );
+
+    let joined = pa.integrate_exact(&pb);
+    assert!(
+        matches!(joined, Partition::Lattice(_)),
+        "a Lattice-Lattice join was detoured through Sparse; the guard protects a \
+         Fast result that this path never builds"
+    );
+}
+
+/// Whatever route the Join takes, the partition must be the same one.
+#[test]
+fn test_lattice_join_exemption_preserves_the_partition() {
+    fn canon(p: &Partition) -> Vec<u32> {
+        let mut m = std::collections::HashMap::new();
+        let mut next = 0u32;
+        p.get_ids()
+            .iter()
+            .map(|&x| {
+                *m.entry(x).or_insert_with(|| {
+                    let v = next;
+                    next += 1;
+                    v
+                })
+            })
+            .collect()
+    }
+    let n = 200_000usize;
+    let a: Vec<u32> = (0..n as u32).map(|i| i % 60_000).collect();
+    let b: Vec<u32> = (0..n as u32).map(|i| i % 50_000).collect();
+    let via_lattice = Partition::from_ids_lattice(a.clone()).integrate_exact(&Partition::from_ids_lattice(b.clone()));
+    let via_fast = Partition::from_ids_fast(a).integrate_exact(&Partition::from_ids_fast(b));
+    assert_eq!(canon(&via_lattice), canon(&via_fast));
+    assert_eq!(via_lattice.block_count(), via_fast.block_count());
+}
+
+
+// ── FactorizedFast auto-routing withdrawn ────────────────────────────────────
+//
+// `from_ids` used to convert to `FactorizedFastPartition` whenever that
+// representation looked smaller than `n * 4` bytes. Measured against the Lattice
+// fallback that now exists, that trade does not pay:
+//
+//   - where it fires (block-dominant inputs) it loses time without saving memory:
+//     at n=1e6, K=1e5 against Lattice it was 1.41x slower on Meet and 7.94x on Join,
+//     at 0.95x and 1.47x the peak RSS
+//   - across the measured grid it beat Lattice on both axes in 0 of 200 admissible
+//     configs on one machine and 3 of 200 on the other, requiring a 1.02x margin on
+//     both axes; without that margin it is 0 and 7
+//   - it was never the fastest backend in any admissible config (0 of 200, both machines)
+//   - the configs where it did lead are cyclic, and those are claimed earlier by
+//     `Cyclic` / `WideCyclic`, so it never sees them
+//
+// The variant and `from_ids_factorized` stay: an explicit caller keeps the
+// representation, and this withdraws a default, not a capability.
+
+/// Automatic conversion is gone: a block-dominant input large enough to have
+/// triggered it must now land on Fast or Lattice.
+#[test]
+fn test_from_ids_no_longer_auto_selects_factorized() {
+    // Aperiodic (so the cyclic detectors do not claim it) and block-dominant, which
+    // is the shape the factorized representation was chosen for.
+    let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+    let ids: Vec<u32> = (0..8192u32)
+        .map(|i| {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            if (state >> 33) % 100 < 95 { i / 256 } else { (state >> 20) as u32 % 32 }
+        })
+        .collect();
+    assert!(
+        !matches!(Partition::from_ids(ids), Partition::FactorizedFast(_)),
+        "from_ids still auto-selects FactorizedFast"
+    );
+}
+
+/// The representation itself is untouched — only the default changed.
+#[test]
+fn test_factorized_remains_available_to_explicit_callers() {
+    let ids: Vec<u32> = (0..4096u32).map(|i| i / 64).collect();
+    let explicit = Partition::from_ids_factorized(ids.clone(), 256);
+    assert!(matches!(explicit, Partition::FactorizedFast(_)));
+
+    // And it still agrees with the routed representation.
+    fn canon(p: &Partition) -> Vec<u32> {
+        let mut m = std::collections::HashMap::new();
+        let mut n = 0u32;
+        p.get_ids().iter().map(|&x| *m.entry(x).or_insert_with(|| { let v = n; n += 1; v })).collect()
+    }
+    let routed = Partition::from_ids(ids);
+    assert_eq!(canon(&explicit), canon(&routed));
+    assert_eq!(explicit.block_count(), routed.block_count());
+    assert_eq!(explicit.dit_count(), routed.dit_count());
+}
 /// Swapped arguments must not panic.
 ///
 /// `interpolate_with(meet, join, alpha)` documents that the first argument is the finer

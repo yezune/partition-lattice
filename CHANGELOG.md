@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.4.0
+
+`Partition::from_ids` chooses differently. Every operation returns the same partition
+it did before — the results are unchanged — but which representation carries that
+partition has changed, and what it costs in memory has changed a great deal.
+
+### `from_ids` can return `Lattice` for a large universe
+
+It never did above 128 elements, so a partition with many blocks was forced onto
+`FastPartition`, which holds one bitvector per block on top of the id vector.
+`PartitionLattice` holds only the ids, so its footprint does not grow with the block
+count. When Fast's bitvectors would exceed `LATTICE_FALLBACK_BUDGET` (1 GiB),
+`from_ids` now hands the input to `Lattice`.
+
+Measured over 276 configurations on two architectures, each machine running its before
+and after arms back to back in one session, same commits and the same pinned toolchain:
+
+| | Apple M4 | Ryzen 5 5600U |
+|---|---|---|
+| peak RSS, worst configuration | 6.79 GB → 2.52 GB | 23.52 GB → 2.55 GB |
+| configurations the OOM killer stopped | 6 → 0 | 6 → 0 |
+| worst regret against the best backend | 8.29 → 3.70 | 19.07 → 3.95 |
+| 95th percentile regret | 3.43 → 3.09 | 3.18 → 2.73 |
+| median regret | 1.50 → 1.57 | 1.36 → 1.30 |
+
+Regret is the chosen backend's time over the fastest available one, so 1.0 is optimal.
+The median moves in opposite directions on the two architectures, by 4.4% and 4.5%.
+That is measured and not explained; whether it says something about the architectures
+or about this particular grid is untested.
+
+This is a bound on memory, not a speed-up. It is worth taking because the tail and the
+failures improve on both machines while the median moves within a few percent either
+way.
+
+### Automatic conversion to `FactorizedFast` withdrawn
+
+`from_ids` used to convert whenever the factorized form looked smaller than `n * 4`
+bytes. That comparison was against `PartitionLattice`'s footprint rather than
+`FastPartition`'s, and the representation it was really competing with could not be
+reached, because `from_ids` could not return `Lattice` at that size. With the fallback
+above in place it can be, and factorized loses: across 200 configurations where both
+applied, it beat Lattice on time *and* memory in 0 on one machine and 3 on the other
+(requiring a 1.02x margin on both axes, the measured noise floor; without that margin,
+0 and 7). It was never the fastest backend in any configuration where the choice was
+resolvable. On the block-dominant inputs where it actually fired it lost time without
+saving memory — at a million elements with 100,000 blocks it was 1.41x slower on Meet
+and 7.94x on Join, at 0.95x and 1.47x the peak RSS.
+
+`Partition::FactorizedFast` and `Partition::from_ids_factorized` remain: this withdraws
+a default, not a capability. `pick_factor_for_universe` is now public so an explicit
+caller can ask for the block size the crate used to choose.
+
+### `PartitionLattice` answers `block_count` and `logical_entropy` in O(1)
+
+Both scanned the id vector on every call, while `FastPartition` has answered both from
+stored fields all along. `Partition::diagnose` reads `block_count` on both operands, so
+an uncached Lattice made an O(1) dispatch decision O(n): 237 microseconds per call at a
+million elements, against a Fast operand too fast to time. The counts are now taken
+during construction, where the normalising pass already computed them and discarded
+them. The serialized form is unchanged, so payloads written by earlier versions load.
+
+### A Join of two `Lattice` operands is no longer detoured through `Sparse`
+
+The detour exists to stop a *result* `FastPartition` from allocating more than 256 MB
+of bitvectors. A Lattice join returns a Lattice, which has no bitvectors, so the case
+being guarded against cannot arise. Leaving it in was slower than the Lattice path
+(327.7 ms against 21.3 ms at a million elements with 100,000 blocks) and also slower
+than using Sparse directly (94.6 ms), since the conversion was added on top of it.
+
+### Compatibility
+
+Correctness and the serialized form are unchanged, and the explicit constructors —
+`from_ids_fast`, `from_ids_lattice`, `from_ids_sparse`, `from_ids_factorized` — still
+return exactly what they name. Code that matches on the variant `from_ids` returns may
+see a different one. The minor version is raised because in `0.x` that is the unit
+Cargo treats as compatible.
+
 ## 0.3.4
 
 **The indication tier gets a home: `subset`.** Partitions are the categorical dual of

@@ -301,12 +301,49 @@ impl From<&FastPartition> for SparsePartition {
 /// Size threshold: partitions larger than this auto-select FastPartition.
 const AUTO_SELECT_THRESHOLD: usize = 128;
 
-/// Picks the factorization block size used by the automatic conversion in [`Partition::from_ids`].
+/// Above this many bytes of block bitvectors, `from_ids` hands the input to
+/// `PartitionLattice` instead of `FastPartition`.
+///
+/// `PartitionLattice` stores only `ids` (`n * 4` bytes, independent of the block
+/// count), so it bounds a single operand's footprint where `FastPartition` grows as
+/// `K * ceil(n/64) * 8`. On a measured 276-config grid across two architectures this
+/// took the worst peak RSS from 6.79 GB to 2.52 GB on one machine and 23.52 GB to
+/// 2.55 GB on the other, and took the configurations the OOM killer stopped from six
+/// to none on each. Median time regret moved by about 4% — up on one architecture and
+/// down on the other. It is a bound on memory, not a speed-up.
+///
+/// The value is not fitted to that grid: 256 MiB and 1 GiB produce identical time,
+/// memory and survival numbers, so it sits mid-plateau rather than on an edge.
+/// 1 GiB is chosen from that plateau because it stays strictly above the Join
+/// sparse-coarsen threshold, which keeps the reasoning about their interaction simple.
+#[cfg(feature = "std")]
+const LATTICE_FALLBACK_BUDGET: usize = 1024 * 1024 * 1024;
+
+// The dispatch thresholds must stay ordered: a Lattice fallback below the sparse
+// guards would fire before them and change which guard owns a decision.
+#[cfg(feature = "std")]
+const _: () = assert!(LATTICE_FALLBACK_BUDGET > 256 * 1024 * 1024);
+
+
+/// A reasonable factorization block size for a universe of `n` elements.
 ///
 /// Rounds `sqrt(N)` down to a power of two, with a floor of `DEFAULT_FACTOR` (256):
 /// `N = 65_536` gives 256 and `N = 262_144` gives 512.
+///
+/// `from_ids` used this when it converted to `FactorizedFastPartition`
+/// automatically. That conversion was withdrawn — see the note in
+/// [`Partition::from_ids`] — so the choice now belongs to whoever calls
+/// [`Partition::from_ids_factorized`], and this is published so that a caller who
+/// has no particular factor in mind can ask for the one the crate would have picked.
+///
+/// # Examples
+/// ```
+/// use partition_lattice::pick_factor_for_universe;
+/// assert_eq!(pick_factor_for_universe(65_536), 256);
+/// assert_eq!(pick_factor_for_universe(262_144), 512);
+/// ```
 #[cfg(feature = "std")]
-fn pick_factor_for_universe(n: usize) -> u32 {
+pub fn pick_factor_for_universe(n: usize) -> u32 {
     let sqrt = (n as f64).sqrt() as usize;
     let mut f = 1u32;
     while (f as usize) * 2 <= sqrt {
@@ -377,6 +414,12 @@ const DEFAULT_CHUNK_SIZE: usize = 4096;
 /// When estimated meet memory exceeds this, streaming path is used.
 /// Aligned with FastPartition's BLOCKS_MEMORY_LIMIT in optimized.rs.
 const STREAMING_DISPATCH_THRESHOLD: usize = 8 * 1024 * 1024;
+
+// Ordering, continued from `LATTICE_FALLBACK_BUDGET`: the metric/meet streaming
+// threshold is the lowest of the three, so it keeps first claim on the decisions
+// it already owns.
+#[cfg(feature = "std")]
+const _: () = assert!(256 * 1024 * 1024 > STREAMING_DISPATCH_THRESHOLD);
 
 /// Unified partition type with static dispatch.
 ///
@@ -452,20 +495,23 @@ impl Partition {
     /// compact representation). Otherwise fall back to the size-based
     /// Lattice / Fast dispatch.
     ///
-    /// Routing chain (wide-cyclic residual + factorized):
+    /// Routing chain (wide-cyclic residual + bounded Fast):
     /// 1. `Cyclic` (L ≤ 8) — narrowest compact form first.
     /// 2. `WideCyclic` (L ∈ [9, 16]) — extended cycle range.
-    /// 3. `FactorizedFast` (N ≥ MIN_UNIVERSE_FOR_FACTORIZATION + memory safety check)
-    ///    compresses the universe-sized `Vec<u32>` into a two-tier coarse block plus overrides.
-    ///    Applied only when `factorized.memory_usage() < fast_bytes`, so a high block count
-    ///    falls back to `Fast`.
-    /// 4. `Fast` fallback for non-cyclic ids (small universe or high block count).
+    /// 3. `Lattice` when `Fast`'s block bitvectors would exceed
+    ///    [`LATTICE_FALLBACK_BUDGET`], since `PartitionLattice`'s footprint does not
+    ///    grow with the block count. This bounds a single operand's memory.
+    /// 4. `Fast` fallback for non-cyclic ids (small universe or block count within budget).
+    ///
+    /// `FactorizedFast` is **not** selected automatically; the conversion was withdrawn
+    /// because it cost time without saving memory against step 3. It remains available
+    /// through [`Partition::from_ids_factorized`].
     ///
     /// Narrow form is always preferred when both detectors would succeed —
     /// `CyclicPartition::try_from_ids` selects the *shortest* cycle, so
     /// any L ≤ 8 input lands in `Cyclic` and never reaches the wide step.
     pub fn from_ids(ids: Vec<u32>) -> Self {
-        // Large-N backend routing (Cyclic/WideCyclic/FactorizedFast/Fast) is
+        // Large-N backend routing (Cyclic/WideCyclic/Lattice/Fast) is
         // `std`-only. The `no_std` profile is Lattice-only — same partition,
         // just without the large-N memory optimization.
         #[cfg(feature = "std")]
@@ -479,21 +525,78 @@ impl Partition {
             if let Some(w) = crate::cyclic_wide::WideCyclicPartition::try_from_ids(&ids) {
                 return Partition::WideCyclic(w);
             }
-            // Automatic conversion to FactorizedFast.
-            // Guarded by ids.len() >= MIN_UNIVERSE_FOR_FACTORIZATION and by the
-            // factorized representation using less memory than the fast one.
-            if ids.len() >= crate::factorized::MIN_UNIVERSE_FOR_FACTORIZATION {
-                let factor = pick_factor_for_universe(ids.len());
-                let factorized =
-                    crate::factorized::FactorizedFastPartition::from_ids_factorized(&ids, factor);
-                let fast_bytes = ids.len() * core::mem::size_of::<u32>();
-                if factorized.memory_usage() < fast_bytes {
-                    return Partition::FactorizedFast(factorized);
-                }
+            // Automatic conversion to FactorizedFast used to sit here, choosing that
+            // representation whenever it looked smaller than `n * 4` bytes. It was
+            // withdrawn once `from_ids` gained a Lattice fallback to compare against:
+            // measured on a 276-config grid across two architectures, factorized beat
+            // Lattice on both time and memory in 0 of 200 admissible configs on one
+            // machine and 3 of 200 on the other, was never the fastest backend in any
+            // admissible config, and where it actually fired — block-dominant inputs — cost
+            // time without saving memory.
+            //
+            // Its comparison was also against the wrong thing: `n * 4` is
+            // `PartitionLattice`'s footprint, not `FastPartition`'s, which also holds
+            // one bitvector per block. The alternative it was really competing with
+            // is now reachable and wins.
+            //
+            // `Partition::FactorizedFast` and `from_ids_factorized` remain: this
+            // withdraws a default, not a capability.
+            // Last resort before Fast: if Fast's block bitvectors would not fit the
+            // budget, hand the input to Lattice, whose footprint does not grow with
+            // the block count.
+            //
+            // Position matters. This sits immediately before the Fast fallback and
+            // after every compressed backend, so it can only ever replace Fast.
+            // Placed any earlier it would take inputs away from Cyclic, WideCyclic
+            // or FactorizedFast — all of which are far more compact than Lattice —
+            // and a change meant to bound memory would raise it instead.
+            if Self::exceeds_bitvec_budget(&ids) {
+                return Partition::Lattice(PartitionLattice::from_ids(ids));
             }
             return Partition::Fast(FastPartition::from_ids(&ids));
         }
         Partition::Lattice(PartitionLattice::from_ids(ids))
+    }
+
+    /// Bytes `FastPartition` would spend on its block bitvectors: one bitvector of
+    /// `n` bits per *distinct* block (`optimized.rs` allocates `0..num_blocks` after
+    /// renumbering). This is the term `from_ids` must weigh, and it is the term the
+    /// earlier guard at [`Self::from_ids`] omitted — it counted only
+    /// `element_to_block` (`n * 4`), understating the real footprint by three orders
+    /// of magnitude at large block counts.
+    #[cfg(feature = "std")]
+    fn fast_bitvec_bytes(distinct_blocks: usize, n: usize) -> usize {
+        distinct_blocks
+            .saturating_mul(n.div_ceil(64))
+            .saturating_mul(8)
+    }
+
+    /// Does the input need more bitvector memory than `LATTICE_FALLBACK_BUDGET`?
+    ///
+    /// Counts distinct ids, **not** `max(id) + 1`: `FastPartition` renumbers before
+    /// allocating, so a vector labelled `[0, 1000, 2000]` is three blocks, not 2001.
+    /// Using the maximum overstated the footprint by up to 990x on label-sparse input
+    /// and would have demoted partitions that cost nothing to represent.
+    ///
+    /// Stops counting once the budget is already exceeded, so the set never grows
+    /// past the threshold and a decision on a huge-K input does not itself allocate.
+    #[cfg(feature = "std")]
+    fn exceeds_bitvec_budget(ids: &[u32]) -> bool {
+        let n = ids.len();
+        // One block's worth of bitvector, from the same formula the budget is about.
+        let per_block = Self::fast_bitvec_bytes(1, n);
+        if per_block == 0 {
+            return false;
+        }
+        let max_blocks_in_budget = LATTICE_FALLBACK_BUDGET / per_block;
+        let mut seen = crate::HashSet::with_capacity(64);
+        for &id in ids {
+            seen.insert(id);
+            if seen.len() > max_blocks_in_budget {
+                return true;
+            }
+        }
+        false
     }
 
     /// Create from block IDs, always using FastPartition backend.
@@ -1666,10 +1769,29 @@ impl Partition {
     /// Preserves the original integrate() dispatch logic (PCS-A5).
     /// Use when mathematical exactness is required (witness verification, proofs).
     pub fn integrate_exact(&self, other: &Self) -> Self {
-        // PCS-A5 dispatch for ExactJoin (Sparse-join fast path is std-only):
+        // PCS-A5 dispatch for ExactJoin (Sparse-join fast path is std-only).
+        //
+        // The Sparse detour exists to stop a *result* `FastPartition` from allocating
+        // more than 256 MB of block bitvectors — see `should_use_sparse_coarsen`.
+        // Two operand pairs never build such a result and so are exempt:
+        //
+        //   (Fast, Fast)       `FastPartition::integrate` has its own elementwise
+        //                      fallback for the high-K case (the second layer named
+        //                      in that predicate's doc comment).
+        //   (Lattice, Lattice) `PartitionLattice::integrate` returns a
+        //                      `PartitionLattice`, which has no bitvectors at all,
+        //                      so the event being guarded against cannot occur.
+        //
+        // Routing a Lattice pair here is not merely slower than its own path, it is
+        // slower than using Sparse directly, since `to_sparse()` is added on top:
+        // at n=1e6, K=1e5 the measured Join was Fast 20.2ms, Lattice-exempt 21.3ms,
+        // Lattice-via-detour 327.7ms, Sparse-direct 94.6ms.
         #[cfg(feature = "std")]
-        if !matches!((self, other), (Partition::Fast(_), Partition::Fast(_)))
-            && self.should_use_sparse_coarsen(other)
+        if !matches!(
+            (self, other),
+            (Partition::Fast(_), Partition::Fast(_))
+                | (Partition::Lattice(_), Partition::Lattice(_))
+        ) && self.should_use_sparse_coarsen(other)
         {
             let a = self.to_sparse();
             let b = other.to_sparse();
@@ -2042,7 +2164,11 @@ impl Partition {
             #[cfg(feature = "std")]
             Partition::Sparse(sp) => sp.logical_entropy(), // Already O(1) from precomputed value
             #[cfg(feature = "std")]
-            Partition::Lattice(pl) => FastPartition::from(pl).logical_entropy_parallel(),
+            // `FastPartition::logical_entropy_parallel` just reads its cached
+            // `sum_block_sizes_sq`, so converting here allocated one bitvector per
+            // block and then never read them. `PartitionLattice` now caches the same
+            // sum, so ask it directly.
+            Partition::Lattice(pl) => pl.logical_entropy(),
             #[cfg(not(feature = "std"))]
             Partition::Lattice(pl) => pl.logical_entropy(), // no SIMD backend — sequential
             #[cfg(feature = "std")]
