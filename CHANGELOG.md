@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.1
+
+**`endomap` grows from describing one self-map to comparing two.** Purely additive; nothing
+existing changed.
+
+| | |
+|---|---|
+| `fix_count` | number of fixed points. With `components` it bounds the cycle structure without running an orbit: `fix_count(c) <= components(c).block_count()`, with equality exactly when no cycle is longer than 1 |
+| `compose` | `(f∘g)(x) = f(g(x))` — the right factor acts first |
+| `organisation` | the conjugacy class of an endomap under renaming of its carrier, as the least conjugate. Label blindness one layer up: it forgets which element is which, for the map itself. Costs `n! · n`, so it is for exhaustive work at small `n` |
+| `survives`, `is_mutually_surviving` | whether composing with `e` leaves the organisation of `g` unchanged — on one side, or on both |
+
+The claims in the `fix_count` documentation are checked over every self-map with `n <= 5`
+against an oracle that walks the functional graph instead of folding Joins, so agreement is
+evidence rather than shared code. The survival counts over all pairs for `n = 1..4`
+(mutual `1/5/30/319`, one-sided `1/10/203/6,594`) were first obtained elsewhere and are
+recomputed here in this crate's own kernel.
+
+Documentation in the module no longer points at names that mean nothing outside the
+repository it was written in — two such references went out in 0.4.0.
+
 ## 0.4.0
 
 `Partition::from_ids` chooses differently. Every operation returns the same partition
