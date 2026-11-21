@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.5.0
+
+**The `no_std` build now works where it was claimed to.** Two claims were false for
+`--no-default-features` and are now true, both checked by building for a target with no `std`.
+
+### Builds on targets without atomic compare-and-swap
+
+The manifest named ESP32-C3 as a target, but ESP32-C3 is `riscv32imc`, which has no
+compare-and-swap, and the crate did not build there: the no_std stand-in for `OnceLock` was a
+`spin::Once`, and `spin` needs `compare_exchange`. Its only user without `std` was the
+distributed dispatch hook — the door through which a distributed runtime, itself a `std`
+program, takes over large computations.
+
+The hooks are now `std` only and the `spin` dependency is gone. Without `std`,
+`dispatch::register_entropy_handler` and `dispatch::register_refine_entropy_handler` do not
+exist, and every computation runs locally — which is what the default path already did when no
+handler was registered. **This removes two public functions from `no_std` builds** — the reason
+for the minor version bump; with `std` nothing changes.
+
+### Minimum supported Rust version holds without `std`
+
+`rust-version = "1.82.0"` was measured with default features. Without `std`, three call sites
+used `f64::abs`, which is in `core` only from 1.84, so the build failed on 1.82 and 1.83.
+`abs` now joins the other `libm`-backed methods of the crate's no_std float shim (`fabs`, which
+clears the sign bit — bit-identical). From 1.84 the inherent method is found first, so newer
+toolchains compile the same code as before.
 ## 0.4.1
 
 **`endomap` grows from describing one self-map to comparing two.** Purely additive; nothing

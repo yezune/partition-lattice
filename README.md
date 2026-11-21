@@ -64,10 +64,16 @@ If you are porting a formula from a paper, check which convention it uses and fl
 `--no-default-features` builds the crate as `#![no_std]` + `alloc`. The lattice core, the
 measures, the incidence coordinates and the endomap invariants are all available there. What
 is gated out is the machinery that genuinely needs `std`: the sparse (roaring) backend,
-serialization, timing, the std RNG, and the analysis modules built on those.
+serialization, timing, the std RNG, the distributed dispatch hooks, and the analysis modules
+built on those.
+
+No atomics are needed, so targets without compare-and-swap build too — `riscv32imc`
+(ESP32-C3) as well as `riscv32imac` (ESP32-C6). The minimum Rust version is the same with and
+without `std`.
 
 This is checked by the build, not by a comment: the workspace contains a `#![no_std]` crate
-whose only job is to depend on this one with `default-features = false`.
+whose only job is to depend on this one with `default-features = false`, and it is built for
+both of those targets, which have no `std` at all.
 
 ## Features
 

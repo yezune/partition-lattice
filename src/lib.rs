@@ -41,7 +41,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 // In the no_std (Lattice-only) profile the `_` fallback arms of the multi-backend
 // match dispatches are unreachable (only the Lattice variant exists), and a few
-// shim helpers (par-shim / OnceLock) are unused — both are legitimately dead only
+// shim helpers (par-shim) are unused — both are legitimately dead only
 // under this profile, so allow them here rather than gate every single site.
 #![cfg_attr(not(feature = "std"), allow(unreachable_patterns, dead_code))]
 
@@ -56,61 +56,25 @@ pub(crate) use hashbrown::{HashMap, HashSet};
 #[cfg(feature = "std")]
 pub(crate) use std::collections::{HashMap, HashSet};
 
-#[cfg(not(feature = "std"))]
-pub(crate) use once_shim::OnceLock;
-/// Crate-wide `OnceLock`: `std::sync::OnceLock` under `std`, a `spin::Once`
-/// wrapper (same `new()` / `get_or_init()` / `get()` surface) otherwise. Used for
-/// lazily-built lookup tables — same values, spin-lock init on no_std.
+/// Crate-wide `OnceLock` (`std::sync::OnceLock`). **std only**: its only users are the
+/// distributed dispatch hooks and `orbit`'s lazy materialisation, both std-only. A no_std
+/// stand-in used to exist (a `spin::Once` wrapper), but it made the whole no_std build require
+/// atomic compare-and-swap, which targets such as `riscv32imc` (ESP32-C3) do not have.
 #[cfg(feature = "std")]
 pub(crate) use std::sync::OnceLock;
-#[cfg(not(feature = "std"))]
-mod once_shim {
-    pub struct OnceLock<T>(spin::Once<T>);
-    impl<T> OnceLock<T> {
-        pub const fn new() -> Self {
-            Self(spin::Once::new())
-        }
-        #[inline]
-        pub fn get_or_init<F: FnOnce() -> T>(&self, f: F) -> &T {
-            self.0.call_once(f)
-        }
-        #[inline]
-        #[allow(dead_code)]
-        pub fn get(&self) -> Option<&T> {
-            self.0.get()
-        }
-        /// `std::sync::OnceLock::set` surface. On no_std this is only reached by
-        /// registration paths that no MCU deployment exercises (hook init is a
-        /// std-side/distributed concern), so the check-then-init race is benign.
-        #[inline]
-        #[allow(dead_code)]
-        pub fn set(&self, value: T) -> Result<(), T> {
-            if self.0.get().is_some() {
-                return Err(value);
-            }
-            self.0.call_once(|| value);
-            Ok(())
-        }
-    }
-    impl<T> Default for OnceLock<T> {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-    impl<T> core::fmt::Debug for OnceLock<T> {
-        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            f.debug_struct("OnceLock").finish_non_exhaustive()
-        }
-    }
-}
 
 /// Floating-point transcendental/root methods for no_std (`sqrt`/`cos`/…), backed
 /// by `libm` (the same IEEE routines std uses). Imported only under
 /// `not(feature = "std")` where `f64` has no inherent methods; under `std` the
 /// inherent methods win. Bit-identical to std for our usage.
+///
+/// `abs` is here for toolchains before 1.84, where `f64::abs` is not yet in `core`. From 1.84
+/// the inherent method is found first and this one is never called; `fabs` clears the sign bit,
+/// so the two agree bit for bit either way.
 #[cfg(not(feature = "std"))]
 #[allow(dead_code)]
 pub(crate) trait FloatExt {
+    fn abs(self) -> Self;
     fn sqrt(self) -> Self;
     fn cos(self) -> Self;
     fn sin(self) -> Self;
@@ -124,6 +88,10 @@ pub(crate) trait FloatExt {
 #[cfg(not(feature = "std"))]
 #[allow(dead_code)]
 impl FloatExt for f64 {
+    #[inline]
+    fn abs(self) -> Self {
+        libm::fabs(self)
+    }
     #[inline]
     fn sqrt(self) -> Self {
         libm::sqrt(self)

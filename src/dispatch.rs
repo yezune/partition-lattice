@@ -36,6 +36,7 @@
 #[cfg(not(feature = "std"))]
 #[allow(unused_imports)]
 use crate::FloatExt;
+#[cfg(feature = "std")]
 use crate::OnceLock;
 #[allow(unused_imports)]
 use alloc::borrow::ToOwned;
@@ -57,18 +58,29 @@ pub type EntropyHandler = Box<dyn Fn(&Partition) -> Option<f64> + Send + Sync>;
 /// Handler function for distributed meet-entropy computation.
 pub type RefineEntropyHandler = Box<dyn Fn(&Partition, &Partition) -> Option<f64> + Send + Sync>;
 
+// The hooks are **std only**. They are the door through which a distributed runtime (itself a
+// std program) takes over large computations. Keeping them in no_std builds cost more than it
+// gave: a process-wide once-cell needs atomic compare-and-swap, so every no_std consumer paid
+// for a door nobody on a microcontroller opens — and targets without CAS (`riscv32imc`,
+// ESP32-C3) could not build the crate at all. Without `std`, no handler can be registered and
+// every computation runs locally, which is exactly the default path with no handler.
+
+#[cfg(feature = "std")]
 static ENTROPY_HOOK: OnceLock<EntropyHandler> = OnceLock::new();
+#[cfg(feature = "std")]
 static MEET_ENTROPY_HOOK: OnceLock<RefineEntropyHandler> = OnceLock::new();
 
-/// Register a distributed entropy handler.
+/// Register a distributed entropy handler. **Requires the `std` feature.**
 ///
 /// Called once at process startup by the distributed runtime.
 /// Returns `Err` if a handler was already registered.
+#[cfg(feature = "std")]
 pub fn register_entropy_handler(f: EntropyHandler) -> Result<(), EntropyHandler> {
     ENTROPY_HOOK.set(f)
 }
 
-/// Register a distributed meet-entropy handler.
+/// Register a distributed meet-entropy handler. **Requires the `std` feature.**
+#[cfg(feature = "std")]
 pub fn register_refine_entropy_handler(f: RefineEntropyHandler) -> Result<(), RefineEntropyHandler> {
     MEET_ENTROPY_HOOK.set(f)
 }
@@ -76,13 +88,31 @@ pub fn register_refine_entropy_handler(f: RefineEntropyHandler) -> Result<(), Re
 /// Try dispatching entropy computation to registered handler.
 ///
 /// Returns `None` if no handler registered or handler declines (returns `None`).
+/// Always `None` without `std`, where no handler can be registered.
 pub(crate) fn try_distributed_entropy(p: &Partition) -> Option<f64> {
-    ENTROPY_HOOK.get().and_then(|f| f(p))
+    #[cfg(feature = "std")]
+    {
+        ENTROPY_HOOK.get().and_then(|f| f(p))
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = p;
+        None
+    }
 }
 
 /// Try dispatching meet-entropy computation to registered handler.
+/// Always `None` without `std`.
 pub(crate) fn try_distributed_meet_entropy(p: &Partition, q: &Partition) -> Option<f64> {
-    MEET_ENTROPY_HOOK.get().and_then(|f| f(p, q))
+    #[cfg(feature = "std")]
+    {
+        MEET_ENTROPY_HOOK.get().and_then(|f| f(p, q))
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = (p, q);
+        None
+    }
 }
 
 #[cfg(test)]
